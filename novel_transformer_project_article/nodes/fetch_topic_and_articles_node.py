@@ -618,9 +618,12 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         # 언어 감지 (id 또는 별도 필드로 판단 가능)
         # 현재는 한국어를 기본으로 설정
         # TODO: state에서 언어 정보 가져오기 (예: state.get("language", "ko"))
-        language = "ko"  # "ko" 또는 "ja"
+        language = state.get("target_language_code")  # "ko" 또는 "ja"
 
         logger.info(f"카테고리: {category}, 언어: {language}")
+
+        if language == "common":
+            language = "ko"
 
         # 1. Google News RSS로 트렌드 수집
         headlines = _fetch_trending_news_with_google_rss(category=category, language=language)
