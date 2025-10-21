@@ -1,4 +1,5 @@
 import importlib
+import os
 from functools import lru_cache
 from typing import Dict, Any, Tuple
 
@@ -108,7 +109,8 @@ def judge_text_for_level(
 
         # Bedrock LLM 설정
         timeout_config = Config(connect_timeout=120, read_timeout=600)
-        client = boto3.client("bedrock-runtime", config=timeout_config)
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        client = boto3.client("bedrock-runtime", region_name=region, config=timeout_config)
 
         # Langfuse config가 있으면 사용, 없으면 기존 하드코딩 값 사용
         if model_config and model_config.get("model"):
