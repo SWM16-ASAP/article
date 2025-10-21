@@ -8,3 +8,4 @@ pymongo>=4.0.0
 requests
 langfuse>=3.5.0
 pysbd>=0.3.4
+lingua-language-detector>=1.3.0
