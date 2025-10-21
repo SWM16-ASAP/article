@@ -1,10 +1,13 @@
 from typing import Dict, Any, Optional
 import boto3
+import requests
 import json
 import base64
+import os
 
 from ..logging_config import get_logger
 from ...state import BookState
+from ..workflow_helpers import send_discord_webhook
 
 logger = get_logger(__name__)
 
@@ -138,4 +141,53 @@ class ArticleHandler:
         # 3. JSON S3 저장
         self._save_json_to_s3(output_data, output_bucket, output_json_key)
 
-        logger.info("Article output process completed successfully")
+        backend_url = os.getenv("ADD_NEW_ARTICLE_URL")
+        api_key = os.getenv("SWAPPER_API_KEY")
+        
+        if not backend_url:
+            logger.warning("BACKEND_ARTICLE_COMPLETION_URL 미설정 - 백엔드 알림 건너뜀")
+            return
+
+        #headers
+        headers = {
+            "Content-Type": "application/json",
+            "X-API-KEY": api_key
+        }
+
+        # Request body
+        body = {
+            "id": output_folder_key
+        }
+
+        try:
+            response = requests.post(
+                backend_url, 
+                headers=headers,
+                body=body,
+                timeout=15
+            )
+
+            response.raise_for_status()
+
+            # 성공 메시지
+            tags = final_state.get("tags", [])
+            category = tags[0] if tags else "Unknown"
+            language = final_state.get("target_language_code", "Unknown")
+            title = final_state.get("title", "Unknown")
+
+            discord_message = f"""✅ **기사 생성 완료** ✅
+
+            **ID**: `{output_folder_key}`
+            **DB id**: {response}
+            **제목**: {title}
+            **카테고리**: {category}
+            **언어**: {language}
+
+            **S3 저장 경로**: `s3://{output_bucket}/{content_type}/{output_folder_key}/`
+            **백엔드 알림**: 성공
+
+            기사가 성공적으로 생성되어 백엔드에 등록되었습니다."""
+
+            send_discord_webhook(discord_message)            
+        except:
+            logger.info("Article output process failed in save_output")

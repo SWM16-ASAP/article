@@ -6,6 +6,8 @@
 
 3. github secret들 등록
 
+4. article 이미지 생성 
+
 ---
 
 ## 여기는 부가적인 것들

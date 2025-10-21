@@ -165,10 +165,6 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
         logger.info(f"중복 제거 완료: {duplicates_found}개 제거, {len(filtered_headlines)}개 남음")
 
-        # 중복 제거 후 너무 적으면 경고
-        if len(filtered_headlines) < 5:
-            logger.warning(f"⚠️ 중복 제거 후 헤드라인이 {len(filtered_headlines)}개만 남았습니다.")
-
         return filtered_headlines
 
     except requests.exceptions.Timeout:
