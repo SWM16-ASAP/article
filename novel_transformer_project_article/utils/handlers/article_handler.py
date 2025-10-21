@@ -1,0 +1,141 @@
+from typing import Dict, Any, Optional
+import boto3
+import json
+import base64
+
+from ..logging_config import get_logger
+from ...state import BookState
+
+logger = get_logger(__name__)
+
+class ArticleHandler:
+    """
+    Article 전용 핸들러.
+    Article은 자동 생성되므로 S3에서 입력을 읽지 않고, 출력만 처리합니다.
+    """
+
+    def __init__(self, aws_region: str = "us-east-1"):
+        """
+        핸들러를 초기화합니다.
+
+        Args:
+            aws_region: 사용할 AWS 리전.
+        """
+        self.s3_client = boto3.client('s3', region_name=aws_region)
+
+    def create_output_structure(self, state: BookState) -> Dict[str, Any]:
+        """
+        Article 출력 구조를 생성합니다.
+        """
+        # 1. leveled_results 변환
+        leveled_results = state.get("leveled_results", [])
+        converted_leveled_results = []
+        for result in leveled_results:
+            converted_chapters = []
+            for chapter in result.get("chapters", []):
+                converted_chunks = []
+                for chunk in chapter.get("chunks", []):
+                    chunk_text = chunk.get("chunkText", "")
+
+                    converted_chunks.append({
+                        "chunkNum": chunk.get("chunkNum", 0) + 1,
+                        "isImage": chunk.get("isImage", False),
+                        "chunkText": chunk_text,
+                        "description": chunk.get("description", "")
+                    })
+                converted_chapters.append({
+                    "chapterNum": chapter.get("chapterNum", 0) + 1,
+                    "chunks": converted_chunks
+                })
+            converted_leveled_results.append({
+                "textLevel": result.get("textLevel", ""),
+                "chapters": converted_chapters
+            })
+
+        # 2. language 설정
+        target_language_code = [state.get("target_language_code")]
+        if target_language_code == "common":
+            target_language_code = ["ko", "ja"]
+
+        # 2. 출력 데이터 구조 생성
+        output_data = {
+            "id": state.get("id"),
+            "content_type": state.get("content_type"),
+            "title": state.get("title"),
+            "author": state.get("author"),
+            "target_language_code": target_language_code,
+            "cover_image_url": state.get("cover_image_url"),
+            "tags": state.get("tags"),
+            "original_text_level": state.get("original_text_level"),
+            "leveled_results": converted_leveled_results
+        }
+
+        return output_data
+
+    def _save_json_to_s3(self, data: dict, bucket: str, key: str):
+        """JSON 데이터를 S3에 저장합니다."""
+        try:
+            json_content = json.dumps(data, ensure_ascii=False, indent=2)
+            self.s3_client.put_object(
+                Bucket=bucket,
+                Key=key,
+                Body=json_content.encode('utf-8'),
+                ContentType='application/json'
+            )
+            logger.info(f"Successfully saved JSON to s3://{bucket}/{key}")
+        except Exception as e:
+            logger.error(f"Failed to save JSON to S3: {e}", exc_info=True)
+            raise
+
+    def _save_cover_image_to_s3(self, final_state: BookState, bucket: str, output_folder_key: str, content_type: str) -> Optional[str]:
+        """커버 이미지를 S3에 저장합니다."""
+        base64_image_data = final_state.get("cover_image_url")
+        if not base64_image_data:
+            logger.warning("No cover image data found in the state.")
+            return None
+
+        try:
+            image_bytes = base64.b64decode(base64_image_data)
+            image_key = f"{content_type}/{output_folder_key}/images/cover.jpg"
+
+            # S3에 업로드
+            self.s3_client.put_object(
+                Bucket=bucket,
+                Key=image_key,
+                Body=image_bytes,
+                ContentType='image/jpeg'
+            )
+            s3_url = f"s3://{bucket}/{image_key}"
+            logger.info(f"Successfully saved cover image to {s3_url}")
+            return s3_url
+        except (base64.binascii.Error, TypeError) as e:
+            logger.error(f"Invalid base64 data: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"Failed to save cover image to S3: {e}", exc_info=True)
+            return None
+
+    def save_output(self, final_state: BookState, output_bucket: str):
+        """
+        Article 생성 결과를 S3에 저장합니다.
+
+        Args:
+            final_state: 워크플로우 최종 상태
+            output_bucket: 출력할 S3 버킷
+        """
+        logger.info("Starting Article output process")
+
+        # 1. JSON 출력 구조 생성
+        output_data = self.create_output_structure(final_state)
+        output_folder_key = final_state["id"]
+        content_type = final_state["content_type"]
+        output_json_key = f"{content_type}/{output_folder_key}/metadata.json"
+
+        # 2. 커버 이미지 S3 저장
+        s3_image_url = self._save_cover_image_to_s3(final_state, output_bucket, output_folder_key, content_type)
+        output_data["cover_image_url"] = s3_image_url
+
+        # 3. JSON S3 저장
+        self._save_json_to_s3(output_data, output_bucket, output_json_key)
+
+        logger.info("Article output process completed successfully")

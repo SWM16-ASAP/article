@@ -1,0 +1,88 @@
+name: Article Automation
+
+on:
+  schedule:
+    # 매일 UTC 00:00 (KST 09:00) 실행
+    - cron: '0 0 * * *'
+  workflow_dispatch: # 수동 실행 가능
+
+jobs:
+  generate-articles:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - category: Business
+            language: ko
+          - category: Business
+            language: ja
+          - category: Sports
+            language: ko
+          - category: Sports
+            language: ja
+          - category: Culture
+            language: ko
+          - category: Culture
+            language: ja
+          - category: Technology
+            language: common
+          - category: Science
+            language: common
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirement.txt
+
+      - name: Run article automation
+        env:
+          # Article Configuration
+          ARTICLE_CATEGORY: ${{ matrix.category }}
+          ARTICLE_LANGUAGE: ${{ matrix.language }}
+          OUTPUT_S3_BUCKET: ${{ secrets.OUTPUT_S3_BUCKET }}
+
+          # AWS & MongoDB
+          MONGO_URI_SECRET_NAME: ${{ secrets.MONGO_URI_SECRET_NAME }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+          # LangSmith & Langfuse
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          USE_LANGFUSE: ${{ secrets.USE_LANGFUSE }}
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: ${{ secrets.LANGFUSE_HOST }}
+
+          # News & Search APIs
+          TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+
+          # Discord
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+        run: |
+          python novel_transformer_project_article/main.py
+
+      - name: Notify Discord on failure
+        if: failure()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{"content":"❌ Article automation failed! Check GitHub Actions logs."}' \
+               ${{ secrets.DISCORD_WEBHOOK_URL }}
+
+      - name: Notify Discord on success
+        if: success()
+        run: |
+          curl -H "Content-Type: application/json" \
+               -d '{"content":"✅ Article automation completed successfully!"}' \
+               ${{ secrets.DISCORD_WEBHOOK_URL }}
