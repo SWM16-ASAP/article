@@ -144,6 +144,12 @@ def setup_bedrock(
     Returns:
         ChatBedrock: 설정된 ChatBedrock 클라이언트.
     """
+    # client가 None이면 자동으로 생성
+    if client is None:
+        import boto3
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        client = boto3.client("bedrock-runtime", region_name=region)
+
     model_id = config.get("model")
     temperature = config.get("temperature", 0.7)
     top_p = config.get("top_p", 0.9)
