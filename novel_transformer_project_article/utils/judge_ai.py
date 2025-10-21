@@ -66,7 +66,7 @@ def get_judge_prompt_for_level(level: str):
 
     # 로컬 프롬프트로 폴백
     try:
-        prompt_module = importlib.import_module(f"novel_transformer_project.prompts.judging.{level.lower()}_judge_prompt")
+        prompt_module = importlib.import_module(f"novel_transformer_project_article.prompts.judging.{level.lower()}_judge_prompt")
         prompt_template = prompt_module.get_judge_prompt()
         return prompt_template, None
     except ImportError as e:

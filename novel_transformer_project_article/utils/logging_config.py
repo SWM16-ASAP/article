@@ -5,8 +5,8 @@ Centralized Logging Configuration for Text Leveling System
 모든 파일에서 이 모듈을 import하여 일관된 로깅을 사용하세요.
 
 사용법:
-    from novel_transformer_project.utils.logging_config import get_logger
-    
+    from novel_transformer_project_article.utils.logging_config import get_logger
+
     logger = get_logger(__name__)
     logger.info("메시지")
 """

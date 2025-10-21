@@ -201,11 +201,9 @@ def generate_article(state: BookState) -> BookState:
                             if attempt < max_retries - 1:
                                 logger.warning(f"확장 후에도 최소 길이 미달 ({len(article_content)}자). 재시도합니다 (시도 {attempt+1}/{max_retries})")
                                 continue
-                            # 마지막 시도였으면 에러 발생 (워크플로우 중지)
+                            # 마지막 시도였으면 경고만 하고 그대로 사용
                             else:
-                                error_msg = f"기사 생성 실패: {max_retries}회 재시도 및 확장 후에도 최소 길이 미달 ({len(article_content)}자 < {MIN_ARTICLE_LENGTH}자)"
-                                logger.error(error_msg)
-                                raise ValueError(error_msg)
+                                logger.warning(f"기사 생성 경고: {max_retries}회 재시도 및 확장 후에도 최소 길이 미달 ({len(article_content)}자 < {MIN_ARTICLE_LENGTH}자), 그대로 진행합니다")
                     
                     # 7. 파싱 및 검증된 결과를 state에 적용
                     state["title"] = response.title

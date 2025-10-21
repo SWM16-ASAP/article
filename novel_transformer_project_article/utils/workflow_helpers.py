@@ -51,8 +51,6 @@ MODEL_PRICING = {
     # Add other models here
 }
 
-CUSTOM_CONTENT_COST_THRESHOLD = 1.00
-
 logger = get_logger(__name__)
 
 # Token ------------------------------------------------------------
@@ -73,10 +71,6 @@ def update_usage_metrics(state: BookState, model_id: str, input_tokens: int, out
         cost = 0.0
     state["usage_metrics"][model_id]["cost"] += cost
     state["total_cost"] += cost
-
-    if is_custom_content(state) and state["total_cost"] >= CUSTOM_CONTENT_COST_THRESHOLD:
-        err_message = f"비용이 1달러를 초과하여 강제종료합니다. 비용: {state['total_cost']}"
-        raise CostLimitExceededError(err_message)
 
 class BedrockTokenTrackingWrapper(Runnable):
     """

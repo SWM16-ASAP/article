@@ -4,7 +4,7 @@ from typing import Dict, Any
 from langgraph.graph import StateGraph, END
 from dotenv import load_dotenv
 
-from .state import BookState, ChapterMetadata
+from .state import BookState
 from .nodes.navigation_nodes import move_to_next_chunk, move_to_next_chapter
 from .nodes.parallel_cefr_processing_node import create_all_cefr_versions_parallel
 from .nodes.generate_article_node import generate_article
@@ -96,26 +96,7 @@ def transform_article() -> Dict[str, Any]:
     logger.info(f"Language: {language}")
 
     # 1. 초기 상태 생성 (Article은 자동 생성되므로 full_text는 비어있음)
-    # Article은 단일 챕터만 가짐
-    initial_metadata = [ChapterMetadata(
-        chapterNum=0,  # 항상 0번 챕터
-        title=None,
-        summary=""
-    )]
-
-    # CEFR 레벨별 결과 구조 초기화 (Article은 항상 1개 챕터)
-    cefr_levels = ["A0", "A1", "A2", "B1", "B2", "C1", "C2"]
-    leveled_results = []
-    for level in cefr_levels:
-        leveled_results.append({
-            "textLevel": level,
-            "chapters": [{
-                "chapterNum": 0,  # 항상 0번 챕터
-                "chunks": []
-            }]
-        })
-
-    # ID 생성: article-20250120-sports-ko
+    # 초기화는 fetch_topic_and_articles 노드에서 처리됨
     from datetime import datetime
     article_id = f"article-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{category.lower()}-{language}"
 
@@ -132,8 +113,8 @@ def transform_article() -> Dict[str, Any]:
         "chapter_chunks": [],
         "current_chapter_index": 0,
         "current_chunk_index": 0,
-        "chapter_metadata": initial_metadata,
-        "leveled_results": leveled_results,
+        "chapter_metadata": [],  # 빈 값으로 초기화
+        "leveled_results": [],  # 빈 값으로 초기화
         "origin_url": "",
         "usage_metrics": {},
         "cover_image_url": None,

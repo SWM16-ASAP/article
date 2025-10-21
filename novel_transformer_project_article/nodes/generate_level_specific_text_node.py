@@ -83,9 +83,9 @@ def get_prompt_for_level(level: str, use_rag: bool, is_feedback_generated: bool)
         except Exception as e:
             logger.warning(f"Failed to load prompt from Langfuse, falling back to local: {e}")
 
-    # 로컬 프롬프트로 폴백
+    # 로컬 프롬프트로 폴백/Users/kim-yudam/ling-level-article-automation/novel_transformer_project_article/prompts
     try:
-        prompt_module = importlib.import_module(f"novel_transformer_project.prompts.leveling.{level.lower()}_prompt")
+        prompt_module = importlib.import_module(f"novel_transformer_project_article.prompts.leveling.{level.lower()}_prompt")
         prompt_template = prompt_module.get_prompt(use_rag=use_rag, is_feedback_generated=is_feedback_generated)
         return prompt_template, None
     except ImportError as e:
