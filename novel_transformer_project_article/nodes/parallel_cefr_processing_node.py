@@ -2,7 +2,7 @@ import concurrent.futures
 import json
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import is_custom_content, calculate_custom_progress, send_progress_update, update_usage_metrics
+from ..utils.workflow_helpers import update_usage_metrics
 from .generate_level_specific_text_node import generate_text_for_level
 from ..utils.pysbd_handler import get_pysbd_segmenter
 
@@ -215,13 +215,6 @@ def create_all_cefr_versions_parallel(state: BookState) -> BookState:
                             break
 
         logger.info(f"=== Chapter {chapter_num}, Chunk {chunk_num}: All CEFR level conversions complete ===")
-        # custom 콘텐츠일 때만 진행률 전송 (해당 청크 처리 완료 직후)
-        try:
-            if is_custom_content(state):
-                progress = calculate_custom_progress(state, "after_chunk")
-                send_progress_update(state, progress)
-        except Exception:
-            pass
         return state
     
     except Exception as e:

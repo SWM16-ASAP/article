@@ -4,6 +4,8 @@
 
 2. 마무리되었을 때 `main.py`에서 백엔드로 api 쏘게 하기
 
+이 두 개는 어느정도 마무리됨
+
 3. github secret들 등록
 
 4. article 이미지 생성 

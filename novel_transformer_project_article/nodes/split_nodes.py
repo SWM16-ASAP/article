@@ -4,7 +4,6 @@ import json
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import is_custom_content, calculate_custom_progress, send_progress_update
 
 logger = get_logger(__name__)
 
@@ -84,14 +83,6 @@ def split_chapter_into_chunks(state: BookState) -> BookState:
         state["chapter_chunks"].append(final_chunks)
 
         logger.info(f"{state['current_chapter_index']}번째 챕터 청크 분할 완료: 총 {len(final_chunks)}개 청크")
-
-        # custom 콘텐츠일 때만 진행률 전송 (해당 챕터 분할 직후)
-        try:
-            if is_custom_content(state):
-                progress = calculate_custom_progress(state, "after_split")
-                send_progress_update(state, progress)
-        except Exception:
-            pass
 
         return state
     

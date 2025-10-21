@@ -275,9 +275,9 @@ def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: fl
         score가 min_score 이상인 기사 정보 리스트 (score 내림차순 정렬)
         각 항목: {"url": str, "raw_content": str, "score": float, "title": str}
     """
-    tavily_key = os.getenv("tvly-YOUR_API_KEY")
+    tavily_key = os.getenv("TAVILY_API_KEY")
     if not tavily_key:
-        raise ValueError("tvly-YOUR_API_KEY 환경변수가 설정되지 않았습니다.")
+        raise ValueError("TAVILY_API_KEY 환경변수가 설정되지 않았습니다.")
 
     tavily = TavilyClient(api_key=tavily_key)
 

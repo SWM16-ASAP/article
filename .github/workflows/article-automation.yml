@@ -52,7 +52,6 @@ jobs:
           OUTPUT_S3_BUCKET: ${{ secrets.OUTPUT_S3_BUCKET }}
 
           # AWS & MongoDB
-          MONGO_URI_SECRET_NAME: ${{ secrets.MONGO_URI_SECRET_NAME }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -70,6 +69,7 @@ jobs:
           # Backend API
           SWAPPER_API_KEY: ${{ secrets.SWAPPER_API_KEY }}
           READ_PAST_ARTICLE_URL: ${{ secrets.READ_PAST_ARTICLE_URL }}
+          ADD_NEW_ARTICLE_URL : ${{ secrets.ADD_NEW_ARTICLE_URL }}
 
           # Discord
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}

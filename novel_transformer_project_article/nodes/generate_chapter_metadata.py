@@ -2,9 +2,6 @@ from ..state import BookState
 from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import (
     setup_bedrock,
-    is_custom_content,
-    calculate_custom_progress,
-    send_progress_update,
     BedrockTokenTrackingWrapper,
 )
 from ..utils.langfuse_client import (
@@ -161,13 +158,6 @@ def generate_chapter_metadata(state: BookState) -> BookState:
         logger.info(
             f"챕터 메타데이터 생성 완료: 총 {len(state['chapter_metadata'])}개 챕터"
         )
-        # custom 콘텐츠일 때만 진행률 전송
-        try:
-            if is_custom_content(state):
-                progress = calculate_custom_progress(state, "after_metadata")
-                send_progress_update(state, progress)
-        except Exception:
-            pass
 
         return state
 
