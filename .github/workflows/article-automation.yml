@@ -84,10 +84,3 @@ jobs:
           curl -H "Content-Type: application/json" \
                -d '{"content":"❌ Article automation failed! Check GitHub Actions logs."}' \
                ${{ secrets.DISCORD_WEBHOOK_URL }}
-
-      - name: Notify Discord on success
-        if: success()
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{"content":"✅ Article automation completed successfully!"}' \
-               ${{ secrets.DISCORD_WEBHOOK_URL }}
