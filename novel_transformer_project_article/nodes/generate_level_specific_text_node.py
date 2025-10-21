@@ -7,7 +7,6 @@ from lingua import Language, LanguageDetectorBuilder
 
 from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper
-from ..utils.rag_tools import find_alternative_words
 from ..utils.judge_ai import judge_text_for_level
 from ..utils.langfuse_client import (
     get_langfuse_client,
