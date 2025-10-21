@@ -1,4 +1,5 @@
 import importlib
+import os
 from functools import lru_cache
 
 import boto3
@@ -21,7 +22,11 @@ logger = get_logger(__name__)
 
 # Define a client with extended timeouts for use in this node
 _extended_timeout_config = Config(connect_timeout=120, read_timeout=600)
-_boto_client = boto3.client("bedrock-runtime", config=_extended_timeout_config)
+_boto_client = boto3.client(
+    "bedrock-runtime",
+    region_name=os.environ.get("AWS_REGION", "us-east-1"),
+    config=_extended_timeout_config
+)
 
 # 레벨별 temperature 설정
 LEVEL_TEMPERATURES = {
