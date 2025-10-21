@@ -194,57 +194,25 @@ def send_failure_notification(state: BookState, error_message: str):
     워크플로우 실패 알림을 백엔드 API로 전송합니다.
     FAIL_API_URL와 LINGLEVEL_API_KEY 환경 변수를 사용합니다.
     """
-    # index.ts에서 주입해 줄 환경 변수를 읽어옵니다.
-    fail_api_url = os.environ.get("FAIL_API_URL")
-    api_key = os.environ.get("LINGLEVEL_API_KEY")
-
-    # 환경 변수가 설정되지 않았을 경우, 알림 전송을 건너뜁니다.
-    if not fail_api_url or not api_key:
-        logger.warning("Fail API URL 또는 API Key 환경 변수가 설정되지 않았습니다. 실패 알림을 건너뜁니다.")
-        return
-
-    # 실패 시점에는 state에 id가 없을 수 있으므로, folder_data에서도 확인합니다.
-    request_id = state.get("id")
-    if not request_id:
-        folder_data = state.get("folder_data")
-        if folder_data and hasattr(folder_data, 'id'):
-            request_id = folder_data.id
-        else:
-            logger.warning("requestId를 특정할 수 없어 실패 알림을 보낼 수 없습니다.")
-            return
-
-    headers = {
-        "Content-Type": "application/json",
-        "X-API-Key": api_key
-    }
-    # 서버로 보낼 payload를 구성합니다.
-    payload = {
-        "requestId": request_id,
-        "errorMessage": str(error_message)  # 에러 객체가 들어올 수도 있으므로 문자열로 변환
-    }
-
-    # API 요청을 보내고 결과를 로깅합니다.
-    try:
-        response = requests.post(fail_api_url, headers=headers, json=payload, timeout=15)
-        response.raise_for_status()
-        logger.info(f"워크플로우 실패 알림 전송 성공: requestId={request_id}")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"워크플로우 실패 알림 전송 실패: {e}")
 
     title = state.get("title", "제목 없음")
     content_type = state.get("content_type", "알 수 없음")
+    language = state.get("target_language_code")
+    full_text = state.get("full_text")
+    tag = state.get("tags")
         
     discord_message = f"""🚨 **워크플로우 실패 알림** 🚨
         
-    **Request ID**: {request_id}
     **제목**: {title}
     **콘텐츠 타입**: {content_type}
+    **언어**: {language}
+    **전문**: {full_text}
+    **태그**:{tag}
     **오류 메시지**: {str(error_message)[:500]}...
 
     운영 환경에서 워크플로우 실행 중 오류가 발생했습니다."""
         
     send_discord_webhook(discord_message)
-    logger.info(f"운영 환경 실패 알림: 디스코드 웹훅 전송 완료 - Request ID: {request_id}")
 
 
 def send_discord_webhook(message: str, webhook_url: str = None):

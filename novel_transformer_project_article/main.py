@@ -15,6 +15,7 @@ from .nodes.generate_cover_image_node import generate_cover_image
 from .nodes.split_nodes import split_chapter_into_chunks
 from .utils.handlers.article_handler import ArticleHandler
 from .utils.logging_config import get_logger
+from .utils.workflow_helpers import send_failure_notification
 # .env 파일 로드
 load_dotenv()
 
@@ -134,6 +135,7 @@ def transform_article() -> Dict[str, Any]:
 
     except Exception as e:
         error_msg = f"워크플로우 실행 중 오류 발생: {str(e)}"
+        send_failure_notification(initial_state, error_msg)
         logger.error(error_msg)
         raise
 
