@@ -67,6 +67,10 @@ jobs:
           # News & Search APIs
           TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
 
+          # Backend API
+          SWAPPER_API_KEY: ${{ secrets.SWAPPER_API_KEY }}
+          READ_PAST_ARTICLE_URL: ${{ secrets.READ_PAST_ARTICLE_URL }}
+
           # Discord
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 

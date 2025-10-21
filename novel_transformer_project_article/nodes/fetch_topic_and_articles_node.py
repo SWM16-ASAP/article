@@ -2,6 +2,8 @@
 Google News RSS로 트렌드 수집 → LLM으로 주제 선정 → Tavily로 기사 수집하는 노드
 """
 import os
+import requests
+from re import T
 from typing import List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -93,6 +95,89 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "ko") ->
     except Exception as e:
         logger.error(f"Google News RSS 호출 중 오류: {e}")
         raise
+
+def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookState) -> List[Dict[str, str]]:
+    """
+    백엔드를 통해 최근 기사들을 가져와서 headlines에서 최근 사용한 주제는 제거하기
+    url 기반 중복 검사
+    """
+
+    # 백엔드 API 
+    swagger_api_key = os.getenv("SWAPPER_API_KEY")
+    backend_url = os.getenv("READ_PAST_ARTICLE_URL")
+
+    targetLanguageCode = state.get("target_language_code")
+    if targetLanguageCode == "common":
+        targetLanguageCode = "ko"
+
+    # 쿼리 파라미터
+    params = {
+        "tags" : state.get("tags")[0].strip(),
+        "targetLanguageCode" : targetLanguageCode,
+        "page":1,
+        "limit":10
+    }
+
+    # header
+    headers = {
+        "Content-Type": "application/json",
+        "X-API-KEY":swagger_api_key
+    }
+
+    try:
+        logger.info(f"백엔드 API 호출: {backend_url} with params={params}")
+
+        response = requests.get(
+            backend_url,
+            params=params,
+            headers=headers,
+            timeout=10
+        )
+
+        response.raise_for_status()
+
+        response_data = response.json()
+        article_data = response_data.get("data", [])
+
+        logger.info(f"백엔드에서 {len(article_data)}개 최근 기사 가져옴")
+
+        # 백엔드 기사의 originUrl 목록 추출
+        recent_urls = set()
+        for article in article_data:
+            origin_url = article.get("originUrl", "")
+            if origin_url:
+                recent_urls.add(origin_url.strip())
+
+        logger.info(f"백엔드에서 {len(recent_urls)}개 고유 URL 추출")
+
+        # headlines에서 중복 URL 제거
+        filtered_headlines = []
+        duplicates_found = 0
+
+        for headline in headlines:
+            headline_url = headline.get("url", "").strip()
+
+            if headline_url in recent_urls:
+                logger.info(f"중복 발견 (URL): {headline.get('title', '')[:50]}")
+                duplicates_found += 1
+            else:
+                filtered_headlines.append(headline)
+
+        logger.info(f"중복 제거 완료: {duplicates_found}개 제거, {len(filtered_headlines)}개 남음")
+
+        # 중복 제거 후 너무 적으면 경고
+        if len(filtered_headlines) < 5:
+            logger.warning(f"⚠️ 중복 제거 후 헤드라인이 {len(filtered_headlines)}개만 남았습니다.")
+
+        return filtered_headlines
+
+    except requests.exceptions.Timeout:
+        logger.error("백엔드 API 타임아웃 - 중복 체크 건너뜀")
+        return headlines  # 에러 시 원본 반환
+    except Exception as e:
+        logger.error(f"_remove_duplicate_headlines error: {e} - 중복 체크 건너뜀")
+        return headlines  # 에러 시 원본 반환
+
 
 
 def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) -> List[str]:
@@ -521,6 +606,10 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         if not headlines:
             raise ValueError(f"뉴스 API에서 트렌드를 가져오지 못했습니다. (카테고리: {category}, 언어: {language})")
 
+
+        # 2.5. 백엔드에 api를 쏴서 겹치는 것들 제거
+
+        headlines = _remove_duplicate_headlines(headlines);
         # 2. LLM으로 주제 3개 선정 (중요도 순)
         topic_candidates = _select_topic_with_llm(headlines, state)
 
