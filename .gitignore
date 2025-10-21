@@ -24,3 +24,6 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+#langgraph
+.langgraph_api/
