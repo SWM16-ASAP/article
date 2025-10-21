@@ -4,8 +4,6 @@ from functools import lru_cache
 import boto3
 from botocore.config import Config
 from lingua import Language, LanguageDetectorBuilder
-from langchain_core.prompts import ChatPromptTemplate
-from langchain.agents import AgentExecutor, create_tool_calling_agent
 
 from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper
@@ -95,36 +93,6 @@ def get_prompt_for_level(level: str, use_rag: bool, is_feedback_generated: bool)
         logger.error(f"Could not import prompt module for level '{level}': {e}")
         raise ValueError(f"Prompt module for level '{level}' not found.")
 
-def _generate_with_rag(model_id: str, level: str, current_chunk: str, context: dict, is_feedback_generated: bool, state: BookState) -> tuple:
-    """Generates text using the RAG agent for a specific level."""
-    prompt, model_config = get_prompt_for_level(level, use_rag=True, is_feedback_generated=is_feedback_generated)
-
-    # Langfuse config가 있으면 사용, 없으면 기존 하드코딩 값 사용
-    if model_config and model_config.get("model"):
-        logger.info(f"Using Langfuse config: model={model_config.get('model')}, temperature={model_config.get('temperature', 0.6)}")
-        llm = setup_bedrock(config=model_config, client=_boto_client)
-    else:
-        temperature = LEVEL_TEMPERATURES.get(level.upper(), 0.6)
-        config = {
-            "model": model_id,
-            "temperature": temperature,
-            "max_tokens": 2000
-        }
-        llm = setup_bedrock(config=config, client=_boto_client)
-
-    llm = BedrockTokenTrackingWrapper(llm, state)
-    tools = [find_alternative_words]
-    agent = create_tool_calling_agent(llm, tools, prompt)
-    agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=False, handle_parsing_errors=True, max_iterations=3)
-    
-    response = agent_executor.invoke({"text": current_chunk, **context})
-    
-    # RAG agent의 경우 토큰 추출이 복잡하므로 임시로 0으로 설정
-    # TODO: 실제 토큰 계산을 위해 callback handler 구현 필요
-    generated_text = str(response.get("output", "")).strip()
-    
-    return generated_text
-
 def _generate_without_rag(model_id: str, level: str, current_chunk: str, context: dict, is_feedback_generated: bool, state: BookState) -> tuple:
     """Generates text using a direct LLM call for a specific level."""
     prompt, model_config = get_prompt_for_level(level, use_rag=False, is_feedback_generated=is_feedback_generated)
@@ -174,11 +142,7 @@ def generate_text_for_level(level: str, use_rag: bool, current_chunk: str, conte
                 prompt_context['feedback'] = feedback_text
                 prompt_context['leveled_text'] = leveled_text_to_feedback
 
-            if use_rag:
-                generated_text = _generate_with_rag(model_id, level, current_chunk, prompt_context, is_feedback_generated, state)
-            else:
-                generated_text = _generate_without_rag(model_id, level, current_chunk, prompt_context, is_feedback_generated, state)
-            
+            generated_text = _generate_without_rag(model_id, level, current_chunk, prompt_context, is_feedback_generated, state)
             
             if not is_english_text(generated_text):
                 logger.warning(f"Attempt {i+1}: Generated text for {level} is not in English. Retrying...")
