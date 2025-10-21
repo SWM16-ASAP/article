@@ -15,7 +15,6 @@ from .nodes.generate_cover_image_node import generate_cover_image
 from .nodes.split_nodes import split_chapter_into_chunks
 from .utils.handlers.article_handler import ArticleHandler
 from .utils.logging_config import get_logger
-from .utils.rag_handler import RAGHandler
 # .env 파일 로드
 load_dotenv()
 
@@ -188,16 +187,6 @@ if __name__ == "__main__":
 
         except Exception as e:
             logger.error(f"예상치 못한 오류가 발생했습니다: {e}")
-
-        finally:
-            # 프로그램 종료 시 RAG 핸들러 정리
-            try:
-                 if RAGHandler._instance is not None:
-                    rag_handler = RAGHandler.get_instance()
-                    rag_handler.force_close()
-                    logger.info("RAG 핸들러 정리 완료")
-            except Exception as e:
-                logger.warning(f"RAG 핸들러 정리 중 오류 발생: {e}")
 
     else:
         logger.error("=== 환경변수 누락 ===")

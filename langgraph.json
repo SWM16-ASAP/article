@@ -1,0 +1,14 @@
+{
+    "graphs": {
+      "article_transformer": "novel_transformer_project_article.main:create_article_transformer_workflow"
+    },
+    "dependencies": [
+      "./requirements.txt"
+    ],
+    "env": ".env",
+    "dockerfile_lines": [
+      "RUN apt-get update && apt-get install -y gcc",
+      "RUN pip install --no-cache-dir -r requirements.txt"
+    ]
+  }
+  
