@@ -75,7 +75,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
 
         run: |
-          python novel_transformer_project_article/main.py
+          python -m novel_transformer_project_article.main
 
       - name: Notify Discord on failure
         if: failure()
