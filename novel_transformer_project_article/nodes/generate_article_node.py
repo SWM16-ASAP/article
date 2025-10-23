@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
+from lingua import Language, LanguageDetectorBuilder
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
@@ -18,6 +19,31 @@ from ..prompts.generate_article_prompt import get_article_generation_prompt
 from ..prompts.expand_article_prompt import get_article_expansion_prompt
 
 logger = get_logger(__name__)
+
+# Initialize lingua detector once at module level for efficiency
+_detector = LanguageDetectorBuilder.from_languages(
+    Language.ENGLISH,
+    Language.KOREAN,
+    Language.SPANISH,
+    Language.FRENCH,
+    Language.GERMAN,
+    Language.ITALIAN,
+    Language.PORTUGUESE,
+    Language.RUSSIAN,
+    Language.CHINESE,
+    Language.JAPANESE
+).build()
+
+def is_english_text(text: str) -> bool:
+    """Checks if the given text is in English using lingua."""
+    try:
+        if not text or len(text.strip()) < 3:
+            return False
+        detected_language = _detector.detect_language_of(text)
+        return detected_language == Language.ENGLISH
+    except Exception as e:
+        logger.warning(f"Language detection failed for text: {text[:50]}... Error: {e}")
+        return False
 
 # 상수 정의
 MIN_ARTICLE_LENGTH = 1000
@@ -182,7 +208,18 @@ def generate_article(state: BookState) -> BookState:
                         # 2차 시도: OutputFixingParser로 자동 복구
                         response = fixing_parser.parse(raw_response.content)
                         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
-                    
+
+                    # 5.5 lingua로 title, content 영어인지 검증
+                    if not is_english_text(response.title):
+                        logger.warning(f"Attempt {attempt+1}: Generated title is not in English: {response.title[:50]}... Retrying...")
+                        continue
+
+                    if not is_english_text(response.content):
+                        logger.warning(f"Attempt {attempt+1}: Generated content is not in English. Retrying...")
+                        continue
+
+                    logger.info(f"Attempt {attempt+1}: Title and content language validation passed")
+
                     # 6. 수동 길이 검증 및 확장 로직
                     article_content = response.content.strip()
                     if len(article_content) < MIN_ARTICLE_LENGTH:
