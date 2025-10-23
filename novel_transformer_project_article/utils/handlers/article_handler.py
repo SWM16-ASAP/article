@@ -94,10 +94,19 @@ class ArticleHandler:
         """커버 이미지를 S3에 저장합니다."""
         base64_image_data = final_state.get("cover_image_url")
         if not base64_image_data:
-            logger.warning("No cover image data found in the state.")
-            return None
+            error_msg = "No cover image data found in the state."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         try:
+            # Data URL 형식(data:image/jpeg;base64,)인 경우 prefix 제거
+            if base64_image_data.startswith('data:'):
+                # 쉼표 이후의 실제 base64 데이터만 추출
+                base64_image_data = base64_image_data.split(',', 1)[1]
+
+            # 공백 및 줄바꿈 제거
+            base64_image_data = base64_image_data.strip().replace('\n', '').replace('\r', '')
+
             image_bytes = base64.b64decode(base64_image_data)
             image_key = f"{content_type}/{output_folder_key}/images/cover.jpg"
 
@@ -113,10 +122,10 @@ class ArticleHandler:
             return s3_url
         except (base64.binascii.Error, TypeError) as e:
             logger.error(f"Invalid base64 data: {e}", exc_info=True)
-            return None
+            raise ValueError(f"Invalid base64 data: {e}") from e
         except Exception as e:
             logger.error(f"Failed to save cover image to S3: {e}", exc_info=True)
-            return None
+            raise
 
     def save_output(self, final_state: BookState, output_bucket: str):
         """
@@ -143,10 +152,11 @@ class ArticleHandler:
 
         backend_url = os.getenv("ADD_NEW_ARTICLE_URL")
         api_key = os.getenv("SWAPPER_API_KEY")
-        
+
         if not backend_url:
-            logger.warning("BACKEND_ARTICLE_COMPLETION_URL 미설정 - 백엔드 알림 건너뜀")
-            return
+            error_msg = "ADD_NEW_ARTICLE_URL 환경 변수가 설정되지 않았습니다."
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
         #headers
         headers = {
@@ -161,9 +171,9 @@ class ArticleHandler:
 
         try:
             response = requests.post(
-                backend_url, 
+                backend_url,
                 headers=headers,
-                body=body,
+                json=body,  # body가 아니라 json 파라미터 사용
                 timeout=15
             )
 
@@ -178,7 +188,7 @@ class ArticleHandler:
             discord_message = f"""✅ **기사 생성 완료** ✅
 
             **ID**: `{output_folder_key}`
-            **DB id**: {response}
+            **DB id**: {response.text}
             **제목**: {title}
             **카테고리**: {category}
             **언어**: {language}
@@ -188,6 +198,11 @@ class ArticleHandler:
 
             기사가 성공적으로 생성되어 백엔드에 등록되었습니다."""
 
-            send_discord_webhook(discord_message)            
-        except:
-            logger.info("Article output process failed in save_output")
+            send_discord_webhook(discord_message)
+            logger.info("Article output process completed successfully")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to notify backend: {e}", exc_info=True)
+            raise
+        except Exception as e:
+            logger.error(f"Article output process failed in save_output: {e}", exc_info=True)
+            raise
