@@ -13,3 +13,4 @@ feedparser>=6.0.0
 tavily-python>=0.3.0
 newspaper3k>=0.2.8
 lxml_html_clean>=0.1.0
+openai

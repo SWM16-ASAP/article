@@ -39,7 +39,8 @@ def create_article_transformer_workflow():
     # workflow
     workflow.set_entry_point("fetch_topic_and_articles")
     workflow.add_edge("fetch_topic_and_articles", "generate_article")
-    workflow.add_edge("generate_article", "split_chapter_into_chunks")
+    workflow.add_edge("generate_article", "generate_cover_image")
+    workflow.add_edge("generate_cover_image", "split_chapter_into_chunks")
     workflow.add_edge("split_chapter_into_chunks", "create_all_cefr_versions_parallel")
     workflow.add_edge("create_all_cefr_versions_parallel", "move_to_next_chunk")
 
