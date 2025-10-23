@@ -34,9 +34,13 @@ def get_cover_image_prompt(article_text: str) -> str:
             langfuse_prompt = client.get_prompt(prompt_name, label=label)
             logger.info(f"Loaded prompt '{prompt_name}' from Langfuse (label: {label}, version: {langfuse_prompt.version})")
 
+            prompt_text = langfuse_prompt.prompt[0]["content"]
             # Langfuse 프롬프트에서 템플릿 가져오기 (compile을 사용하여 변수 삽입)
-            prompt_text = langfuse_prompt.compile(article_text=article_text)
-            return prompt_text
+            compiled_messages = prompt_text.format(article_text=article_text)
+
+            logger.info(f"Compiled prompt from Langfuse: {compiled_messages[:200]}...")
+            logger.info(f"Article text length: {len(article_text)}, first 100 chars: {article_text[:100]}")
+            return compiled_messages
         except Exception as e:
             logger.warning(f"Failed to load prompt from Langfuse, falling back to hardcoded prompt: {e}")
 
@@ -77,7 +81,7 @@ def generate_cover_image(state: BookState) -> BookState:
     logger.info(f"예시 이미지 URL: {example_image_url}")
 
     # Get image generation prompt (from Langfuse or hardcoded fallback)
-    image_prompt = get_cover_image_prompt(article_text)[0]["content"]
+    image_prompt = get_cover_image_prompt(article_text)
 
     logger.info("OpenRouter GPT-5-image-mini로 커버 이미지 생성 중...")
 
