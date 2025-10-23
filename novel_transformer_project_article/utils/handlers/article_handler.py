@@ -56,7 +56,7 @@ class ArticleHandler:
             })
 
         # 2. language 설정
-        target_language_code = state.get("target_language_code")
+        target_language_code = [state.get("target_language_code")]
         if target_language_code[0] == "common":
             target_language_code = ["ko", "ja"]
 
