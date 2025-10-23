@@ -6,8 +6,48 @@ from openai import OpenAI
 from ..state import BookState
 from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import update_usage_metrics
+from ..utils.langfuse_client import (
+    get_langfuse_client,
+    is_langfuse_enabled,
+    get_prompt_label,
+)
 
 logger = get_logger(__name__)
+
+def get_cover_image_prompt(article_text: str) -> str:
+    """
+    Gets the cover image prompt from Langfuse if enabled, otherwise returns hardcoded prompt.
+
+    Args:
+        article_text: The article text to include in the prompt
+
+    Returns:
+        The formatted image generation prompt
+    """
+    # Try to get prompt from Langfuse
+    if is_langfuse_enabled():
+        try:
+            client = get_langfuse_client()
+            label = get_prompt_label()
+            prompt_name = "generate-cover-image-prompt-article"
+
+            langfuse_prompt = client.get_prompt(prompt_name, label=label)
+            logger.info(f"Loaded prompt '{prompt_name}' from Langfuse (label: {label}, version: {langfuse_prompt.version})")
+
+            # Langfuse 프롬프트에서 템플릿 가져오기 (compile을 사용하여 변수 삽입)
+            prompt_text = langfuse_prompt.compile(article_text=article_text)
+            return prompt_text
+        except Exception as e:
+            logger.warning(f"Failed to load prompt from Langfuse, falling back to hardcoded prompt: {e}")
+
+    # Fallback to hardcoded prompt
+    return f"""Make me a article cover image
+The article is "{article_text}"
+
+You must keep this condition:
+1. The image should be 1:1 ratio
+2. The image style should be same with the image I gave you
+3. I want the cover image to be easily recognizable at a glance."""
 
 def generate_cover_image(state: BookState) -> BookState:
     """
@@ -36,14 +76,8 @@ def generate_cover_image(state: BookState) -> BookState:
     example_image_url = os.getenv("EXAMPLE_IMAGE_URL", "https://i.ibb.co/C5FJSVsd/Gemini-Generated-Image-tl1mcktl1mcktl1m.png")
     logger.info(f"예시 이미지 URL: {example_image_url}")
 
-    # 하드코딩된 이미지 생성 프롬프트
-    image_prompt = f"""Make me a article cover image
-The article is "{article_text}"
-
-You must keep this condition:
-1. The image should be 1:1 ratio
-2. The image style should be same with the image I gave you
-3. I want the cover image to be easily recognizable at a glance."""
+    # Get image generation prompt (from Langfuse or hardcoded fallback)
+    image_prompt = get_cover_image_prompt(article_text)
 
     logger.info("OpenRouter GPT-5-image-mini로 커버 이미지 생성 중...")
 
