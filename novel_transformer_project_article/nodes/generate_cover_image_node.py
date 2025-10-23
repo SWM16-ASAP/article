@@ -77,7 +77,7 @@ def generate_cover_image(state: BookState) -> BookState:
     logger.info(f"예시 이미지 URL: {example_image_url}")
 
     # Get image generation prompt (from Langfuse or hardcoded fallback)
-    image_prompt = get_cover_image_prompt(article_text)
+    image_prompt = get_cover_image_prompt(article_text)[0]["content"]
 
     logger.info("OpenRouter GPT-5-image-mini로 커버 이미지 생성 중...")
 
