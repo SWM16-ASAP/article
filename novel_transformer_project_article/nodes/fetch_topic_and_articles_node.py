@@ -110,6 +110,8 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
     if targetLanguageCode == "common":
         targetLanguageCode = "ko"
 
+    targetLanguageCode = targetLanguageCode.upper();
+    
     # 쿼리 파라미터
     params = {
         "tags" : state.get("tags")[0].strip(),

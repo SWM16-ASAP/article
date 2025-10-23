@@ -17,8 +17,8 @@ jobs:
           #   language: ko
           # - category: Business
           #   language: ja
-          - category: Sports
-            language: ko
+          # - category: Sports
+          #   language: ko
           # - category: Sports
           #   language: ja
           - category: Culture
@@ -27,8 +27,8 @@ jobs:
           #   language: ja
           - category: Technology
             language: common
-          - category: Science
-            language: common
+          # - category: Science
+          #   language: common
 
     steps:
       - name: Checkout code
