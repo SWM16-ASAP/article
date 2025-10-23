@@ -13,22 +13,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - category: Business
-            language: ko
           # - category: Business
-          #   language: ja
-          # - category: Sports
           #   language: ko
-          # - category: Sports
-          #   language: ja
-          # - category: Culture
-          #   language: ko
-          # - category: Culture
-          #   language: ja
-          # - category: Technology
-          #   language: common
-          # - category: Science
-          #   language: common
+          - category: Business
+            language: ja
+          - category: Sports
+            language: ko
+          - category: Sports
+            language: ja
+          - category: Culture
+            language: ko
+          - category: Culture
+            language: ja
+          - category: Technology
+            language: common
+          - category: Science
+            language: common
 
     steps:
       - name: Checkout code
