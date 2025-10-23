@@ -108,15 +108,6 @@ def generate_cover_image(state: BookState) -> BookState:
             ]
         )
 
-        try:
-            completion_dict = completion.model_dump()
-            completion_file = os.path.join(os.path.dirname(__file__), "..", "utils", "completion_response.txt")
-            with open(completion_file, "w", encoding="utf-8") as f:
-                json.dump(completion_dict, f, indent=2, ensure_ascii=False)
-            logger.info(f"completion 객체 전체를 파일에 저장: {completion_file}")
-        except Exception as e:
-            logger.warning(f"completion 저장 중 오류 (계속 진행): {e}")
-
         # 이미지는 message.images 필드에 있음
         message = completion.choices[0].message
 
