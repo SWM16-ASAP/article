@@ -50,11 +50,11 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "ko") ->
             "ko": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
             "ja": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
         },
-        "Culture": {
-            "ko": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNREpxYW5RU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
-            "ja": "https://news.google.com/rss/search?q=%E6%96%87%E5%8C%96%20when%3A1d&hl=ja&gl=JP&ceid=JP:ja"
-        },
         "Technology": {
+            "ko": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+            "ja": "https://www.cnbc.com/id/19854910/device/rss/rss.html"
+        },
+        "Culture": {
             "ko": "https://www.yna.co.kr/rss/entertainment.xml",
             "ja": "https://news.yahoo.co.jp/rss/categories/entertainment.xml"
         }
