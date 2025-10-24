@@ -140,6 +140,24 @@ def transform_article() -> Dict[str, Any]:
         logger.error(error_msg)
         raise
 
+    # GitHub Actions artifact용 JSON 파일 생성
+    # 이 파일은 워크플로우에서 artifact로 업로드되어 notify-completion job에서 사용됨
+    try:
+        import json
+        artifact_data = {
+            "articleId": final_state['id'],
+            "targetLanguageCode": final_state['target_language_code'],
+            "targetCategory": final_state['tags'][0]
+        }
+
+        # 매트릭스 작업들은 독립된 컨테이너에서 실행되서 동시접근 문제 괜찮고 아티팩트로 올리는 것 git action 파일에서 할 예정
+        with open('article_result.json', 'w', encoding='utf-8') as f:
+            json.dump(artifact_data, f, ensure_ascii=False, indent=2)
+
+        logger.info(f"Artifact JSON 파일 생성 완료: {artifact_data}")
+    except Exception as e:
+        logger.warning(f"Artifact JSON 파일 생성 실패: {e}")
+
     # 최종 상태의 일부를 반환하여 확인 용도로 사용
     return {
         "id": final_state["id"],
