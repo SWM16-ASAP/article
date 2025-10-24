@@ -128,7 +128,7 @@ jobs:
 
           # artifacts 폴더에서 모든 article_result.json 파일 찾기
           artifacts_path = Path('artifacts')
-          articles_by_id = defaultdict(lambda: {"targetLanguageCodes": [], "targetCategory": None})
+          articles_by_id = defaultdict(lambda: {"targetLanguageCodes": None, "targetCategory": None})
 
           print("Processing artifacts...")
           for json_file in artifacts_path.rglob('article_result.json'):
@@ -149,6 +149,9 @@ jobs:
                   # 같은 articleId로 그룹화 (동일 아티클의 다른 언어 버전)
                   # language_code는 null일 수 있음
                   if language_code is not None:
+                      # 첫 언어 코드일 경우 배열로 초기화
+                      if articles_by_id[article_id]["targetLanguageCodes"] is None:
+                          articles_by_id[article_id]["targetLanguageCodes"] = []
                       articles_by_id[article_id]["targetLanguageCodes"].append(language_code)
                   articles_by_id[article_id]["targetCategory"] = category
 
