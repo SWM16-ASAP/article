@@ -56,7 +56,9 @@ class ArticleHandler:
             })
 
         # 2. language 설정
-        target_language_code = [state.get("target_language_code")]
+        language_code = state.get("target_language_code")
+        # None이면 그대로 None, 값이 있으면 배열로 감싸기
+        target_language_code = None if language_code is None else [language_code]
 
         # 2. 출력 데이터 구조 생성
         output_data = {

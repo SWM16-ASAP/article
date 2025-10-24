@@ -74,7 +74,7 @@ def transform_article() -> Dict[str, Any]:
     output_s3_bucket = os.getenv('OUTPUT_S3_BUCKET')
     aws_region = os.getenv('AWS_REGION', 'us-east-1')
     category = os.getenv('ARTICLE_CATEGORY')  # Sports, Science, Business, Culture, Technology
-    language = os.getenv('ARTICLE_LANGUAGE')  # KO, JA, null
+    language = os.getenv('ARTICLE_LANGUAGE') or None  # KO, JA, null (빈 문자열은 None으로 변환)
 
     if not output_s3_bucket:
         raise ValueError("OUTPUT_S3_BUCKET 환경변수가 필요합니다.")
@@ -90,7 +90,7 @@ def transform_article() -> Dict[str, Any]:
     # 언어 유효성 검사
     valid_languages = ["KO", "JA", None]
     if language not in valid_languages:
-        raise ValueError(f"유효하지 않은 언어: {language}. 가능한 값: ko, ja, null")
+        raise ValueError(f"유효하지 않은 언어: {language}. 가능한 값: KO, JA, null")
 
     logger.info(f"Output S3 Bucket: {output_s3_bucket}")
     logger.info(f"AWS Region: {aws_region}")
