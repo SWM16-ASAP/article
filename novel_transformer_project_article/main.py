@@ -132,7 +132,7 @@ def transform_article() -> Dict[str, Any]:
 
         # 3. ArticleHandler로 JSON 출력 처리 및 이미지 저장
         handler = ArticleHandler(aws_region=aws_region)
-        handler.save_output(final_state, output_bucket=output_s3_bucket)
+        db_id = handler.save_output(final_state, output_bucket=output_s3_bucket)
 
     except Exception as e:
         error_msg = f"워크플로우 실행 중 오류 발생: {str(e)}"
@@ -145,7 +145,7 @@ def transform_article() -> Dict[str, Any]:
     try:
         import json
         artifact_data = {
-            "articleId": final_state['id'],
+            "articleId": db_id,
             "targetLanguageCode": final_state['target_language_code'],
             "targetCategory": final_state['tags'][0]
         }

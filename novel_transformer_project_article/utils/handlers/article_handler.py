@@ -127,13 +127,16 @@ class ArticleHandler:
             logger.error(f"Failed to save cover image to S3: {e}", exc_info=True)
             raise
 
-    def save_output(self, final_state: BookState, output_bucket: str):
+    def save_output(self, final_state: BookState, output_bucket: str) -> str:
         """
         Article 생성 결과를 S3에 저장합니다.
 
         Args:
             final_state: 워크플로우 최종 상태
             output_bucket: 출력할 S3 버킷
+
+        Returns:
+            str: 백엔드 DB에서 생성된 Article ID
         """
         logger.info("Starting Article output process")
 
@@ -179,6 +182,9 @@ class ArticleHandler:
 
             response.raise_for_status()
 
+            # DB ID 추출
+            db_id = response.text
+
             # 성공 메시지
             tags = final_state.get("tags", [])
             category = tags[0] if tags else "Unknown"
@@ -188,7 +194,7 @@ class ArticleHandler:
             discord_message = f"""✅ **기사 생성 완료** ✅
 
             **ID**: `{output_folder_key}`
-            **DB id**: {response.text}
+            **DB id**: {db_id}
             **제목**: {title}
             **카테고리**: {category}
             **언어**: {language}
@@ -200,6 +206,8 @@ class ArticleHandler:
 
             send_discord_webhook(discord_message)
             logger.info("Article output process completed successfully")
+
+            return db_id
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to notify backend: {e}", exc_info=True)
             raise
