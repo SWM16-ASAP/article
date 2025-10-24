@@ -63,6 +63,7 @@ class ArticleHandler:
         # 2. 출력 데이터 구조 생성
         output_data = {
             "id": state.get("id"),
+            "origin_url": state.get("origin_url"),
             "content_type": state.get("content_type"),
             "title": state.get("title"),
             "author": state.get("author"),
