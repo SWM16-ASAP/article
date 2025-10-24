@@ -14,21 +14,21 @@ jobs:
       matrix:
         include:
           # - category: Business
-          #   language: ko
+          #   language: KO
           # - category: Business
-          #   language: ja
+          #   language: JA
           # - category: Sports
-          #   language: ko
+          #   language: KO
           # - category: Sports
-          #   language: ja
+          #   language: JA
           - category: Culture
-            language: ko
+            language: KO
           # - category: Culture
-          #   language: ja
+          #   language: JA
           - category: Technology
-            language: common
+            language: null
           # - category: Science
-          #   language: common
+          #   language: null
 
     steps:
       - name: Checkout code

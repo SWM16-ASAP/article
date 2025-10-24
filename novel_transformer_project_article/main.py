@@ -88,9 +88,9 @@ def transform_article() -> Dict[str, Any]:
         raise ValueError(f"유효하지 않은 카테고리: {category}. 가능한 값: {', '.join(valid_categories)}")
 
     # 언어 유효성 검사
-    valid_languages = ["ko", "ja", "common"]
+    valid_languages = ["ko", "ja", None]
     if language not in valid_languages:
-        raise ValueError(f"유효하지 않은 언어: {language}. 가능한 값: {', '.join(valid_languages)}")
+        raise ValueError(f"유효하지 않은 언어: {language}. 가능한 값: ko, ja, null")
 
     logger.info(f"Output S3 Bucket: {output_s3_bucket}")
     logger.info(f"AWS Region: {aws_region}")

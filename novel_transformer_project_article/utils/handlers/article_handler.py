@@ -57,8 +57,6 @@ class ArticleHandler:
 
         # 2. language 설정
         target_language_code = [state.get("target_language_code")]
-        if target_language_code[0] == "common":
-            target_language_code = ["ko", "ja"]
 
         # 2. 출력 데이터 구조 생성
         output_data = {

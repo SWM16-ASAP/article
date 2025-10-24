@@ -33,30 +33,30 @@ class ArticleExtraction(BaseModel):
     content: str = Field(description="Article main content")
 
 
-def _fetch_trending_news_with_google_rss(category: str, language: str = "ko") -> List[Dict[str, str]]:
+def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") -> List[Dict[str, str]]:
     """Google News RSS로 최신 뉴스 헤드라인 수집"""
 
     # 카테고리 및 언어별로 미리 정의된 RSS URL
     RSS_URLS = {
         "Sports": {
-            "ko": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
-            "ja": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
+            "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
+            "JA": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
         },
         "Science": {
-            "ko": "https://scitechdaily.com/feed/",
-            "ja": "https://scitechdaily.com/feed/"
+            "KO": "https://scitechdaily.com/feed/",
+            "JA": "https://scitechdaily.com/feed/"
         },
         "Business": {
-            "ko": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
-            "ja": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
+            "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
+            "JA": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
         },
         "Technology": {
-            "ko": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
-            "ja": "https://www.cnbc.com/id/19854910/device/rss/rss.html"
+            "KO": "https://www.cnbc.com/id/19854910/device/rss/rss.html",
+            "JA": "https://www.cnbc.com/id/19854910/device/rss/rss.html"
         },
         "Culture": {
-            "ko": "https://www.yna.co.kr/rss/entertainment.xml",
-            "ja": "https://news.yahoo.co.jp/rss/categories/entertainment.xml"
+            "KO": "https://www.yna.co.kr/rss/entertainment.xml",
+            "JA": "https://news.yahoo.co.jp/rss/categories/entertainment.xml"
         }
     }
 
@@ -107,10 +107,13 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
     backend_url = os.getenv("READ_PAST_ARTICLE_URL")
 
     targetLanguageCode = state.get("target_language_code")
-    if targetLanguageCode == "common":
-        targetLanguageCode = "ko"
 
-    targetLanguageCode = targetLanguageCode.upper();
+    # None이면 기본값 "KO" 설정
+    if targetLanguageCode is None:
+        targetLanguageCode = "KO"
+
+    # 이미 대문자로 들어오므로 upper() 불필요
+    # targetLanguageCode는 "KO", "JA" 등
     
     # 쿼리 파라미터
     params = {
@@ -624,8 +627,9 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
 
         logger.info(f"카테고리: {category}, 언어: {language}")
 
-        if language == "common":
-            language = "ko"
+        # language는 대문자 ("KO", "JA", None)로 들어옴
+        if language is None:
+            language = "KO"
 
         # 1. Google News RSS로 트렌드 수집
         headlines = _fetch_trending_news_with_google_rss(category=category, language=language)
