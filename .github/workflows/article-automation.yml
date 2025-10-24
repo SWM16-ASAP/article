@@ -21,14 +21,14 @@ jobs:
           #   language: KO
           # - category: Sports
           #   language: JA
-          - category: Culture
-            language: KO
+          # - category: Culture
+          #   language: KO
           # - category: Culture
           #   language: JA
-          - category: Technology
-            language: null
-          # - category: Science
+          # - category: Technology
           #   language: null
+          - category: Science
+            language: null
 
     steps:
       - name: Checkout code
@@ -142,12 +142,14 @@ jobs:
                   language_code = data.get('targetLanguageCode')
                   category = data.get('targetCategory')
 
-                  if not article_id or not language_code or not category:
+                  if not article_id or not category:
                       print(f"Warning: Missing data in {json_file}: {data}")
                       continue
 
                   # 같은 articleId로 그룹화 (동일 아티클의 다른 언어 버전)
-                  articles_by_id[article_id]["targetLanguageCodes"].append(language_code)
+                  # language_code는 null일 수 있음
+                  if language_code is not None:
+                      articles_by_id[article_id]["targetLanguageCodes"].append(language_code)
                   articles_by_id[article_id]["targetCategory"] = category
 
                   print(f"Loaded: {article_id} - {language_code} - {category}")
@@ -193,7 +195,7 @@ jobs:
                   data=json.dumps(payload).encode('utf-8'),
                   headers={
                       'Content-Type': 'application/json',
-                      'Authorization': f'{api_key}'
+                      'X-API-Key': api_key
                   },
                   method='POST'
               )
