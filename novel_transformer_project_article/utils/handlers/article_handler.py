@@ -183,7 +183,7 @@ class ArticleHandler:
             response.raise_for_status()
 
             # DB ID 추출
-            db_id = response.text
+            db_id = response.json()["id"]
 
             # 성공 메시지
             tags = final_state.get("tags", [])

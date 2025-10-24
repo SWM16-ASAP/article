@@ -13,8 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - category: Business
-          #   language: KO
+          - category: Business
+            language: KO
           # - category: Business
           #   language: JA
           # - category: Sports
@@ -27,8 +27,8 @@ jobs:
           #   language: JA
           # - category: Technology
           #   language: null
-          - category: Science
-            language: null
+          # - category: Science
+          #   language: null
 
     steps:
       - name: Checkout code
