@@ -155,15 +155,21 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
         logger.info(f"백엔드에서 {len(recent_urls)}개 고유 URL 추출")
 
-        # headlines에서 중복 URL 제거
+        # headlines에서 중복 URL 제거 (포함 관계로 체크)
         filtered_headlines = []
         duplicates_found = 0
 
         for headline in headlines:
             headline_url = headline.get("url", "").strip()
 
-            if headline_url in recent_urls:
-                logger.info(f"중복 발견 (URL): {headline.get('title', '')[:50]}")
+            # URL이 포함되어 있으면 중복으로 판단 (양방향 체크)
+            is_duplicate = any(
+                headline_url in recent_url or recent_url in headline_url
+                for recent_url in recent_urls
+            )
+
+            if is_duplicate:
+                logger.info(f"중복 발견 (URL 포함): {headline.get('title', '')[:50]}")
                 duplicates_found += 1
             else:
                 filtered_headlines.append(headline)

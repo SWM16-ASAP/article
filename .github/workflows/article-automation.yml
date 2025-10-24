@@ -15,20 +15,20 @@ jobs:
         include:
           - category: Business
             language: KO
-          # - category: Business
-          #   language: JA
-          # - category: Sports
-          #   language: KO
-          # - category: Sports
-          #   language: JA
-          # - category: Culture
-          #   language: KO
-          # - category: Culture
-          #   language: JA
-          # - category: Technology
-          #   language: null
-          # - category: Science
-          #   language: null
+          - category: Business
+            language: JA
+          - category: Sports
+            language: KO
+          - category: Sports
+            language: JA
+          - category: Culture
+            language: KO
+          - category: Culture
+            language: JA
+          - category: Technology
+            language: null
+          - category: Science
+            language: null
 
     steps:
       - name: Checkout code
