@@ -1,5 +1,6 @@
 import os
 import pprint
+import re
 import requests
 from typing import TYPE_CHECKING, Optional
 from langchain_aws import ChatBedrock
@@ -52,6 +53,43 @@ MODEL_PRICING = {
 }
 
 logger = get_logger(__name__)
+
+# JSON Parsing ------------------------------------------------------------
+
+def clean_json_markdown(text: str | AIMessage) -> str:
+    """
+    마크다운 코드 블록에서 JSON 추출
+
+    LLM이 ```json ... ``` 또는 ``` ... ``` 형태로 응답할 때
+    마크다운 코드 블록을 제거하고 순수 JSON 문자열만 반환합니다.
+
+    Args:
+        text: 마크다운 코드 블록을 포함할 수 있는 텍스트 또는 AIMessage 객체
+
+    Returns:
+        순수 JSON 문자열 (마크다운 제거됨)
+
+    Examples:
+        >>> clean_json_markdown('```json\\n{"key": "value"}\\n```')
+        '{"key": "value"}'
+        >>> clean_json_markdown('```\\n{"key": "value"}\\n```')
+        '{"key": "value"}'
+        >>> clean_json_markdown('{"key": "value"}')
+        '{"key": "value"}'
+        >>> from langchain_core.messages import AIMessage
+        >>> clean_json_markdown(AIMessage(content='```json\\n{"key": "value"}\\n```'))
+        '{"key": "value"}'
+    """
+    # AIMessage인 경우 content 추출
+    if isinstance(text, AIMessage):
+        text = text.content
+
+    # ```json ... ``` 또는 ``` ... ``` 패턴 제거
+    pattern = r'```(?:json)?\s*(.*?)\s*```'
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
 
 # Token ------------------------------------------------------------
 

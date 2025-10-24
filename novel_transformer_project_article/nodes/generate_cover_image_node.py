@@ -50,7 +50,7 @@ The article is "{article_text}"
 
 You must keep this condition:
 1. The image should be 1:1 ratio
-2. The image style should be same with the image I gave you
+2. The image style should be same with the image I gave you, Remember you should refer the image style, not the content!
 3. I want the cover image to be easily recognizable at a glance."""
 
 def generate_cover_image(state: BookState) -> BookState:

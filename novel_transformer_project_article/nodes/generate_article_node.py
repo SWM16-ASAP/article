@@ -168,7 +168,8 @@ def generate_article(state: BookState) -> BookState:
             if llm is None:
                 config = {
                     "model": model_id,
-                    "temperature": 0.4
+                    "temperature": 0.4,
+                    "max_tokens": 2000
                 }
                 llm = setup_bedrock(config=config)
 

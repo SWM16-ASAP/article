@@ -15,7 +15,7 @@ from tavily import TavilyClient
 from newspaper import Article
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook, clean_json_markdown
 from langchain_core.prompts import ChatPromptTemplate
 
 logger = get_logger(__name__)
@@ -250,14 +250,14 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) ->
         partial_variables={"format_instructions": base_parser.get_format_instructions()}
     )
 
-    chain = prompt | llm
-    raw_response = chain.invoke({"headlines": headlines_text})
+    chain = prompt | llm | clean_json_markdown
+    reponse = chain.invoke({"headlines": headlines_text})
 
     try:
-        response = base_parser.parse(raw_response.content)
+        response = base_parser.parse(reponse)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(raw_response.content)
+        response = fixing_parser.parse(reponse)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
@@ -388,7 +388,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         여기서 잡다한 정보를 걸러내고 기사의 본문한 추출해서 제공을 해줘""")
     ]).partial(format_instructions=base_parser.get_format_instructions())
 
-    chain = prompt | llm
+    chain = prompt | llm | clean_json_markdown
 
     parsed_articles = []
     failed_count = 0
@@ -403,14 +403,14 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
             logger.info(f"[{i+1}/{len(article_data)}] LLM 파싱 시도: {article['title'][:50]}")
 
             # LLM 호출
-            raw_response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
+            response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
 
             # 파싱
             try:
-                extracted = base_parser.parse(raw_response.content)
+                extracted = base_parser.parse(response)
             except OutputParserException as e:
                 logger.info(f"  파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-                extracted = fixing_parser.parse(raw_response.content)
+                extracted = fixing_parser.parse(response)
                 logger.info("  OutputFixingParser를 통한 파싱 복구 성공")
 
             # 제목과 본문 검증
