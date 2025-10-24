@@ -3,6 +3,7 @@ from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import (
     setup_bedrock,
     BedrockTokenTrackingWrapper,
+    clean_json_markdown,
 )
 from ..utils.langfuse_client import (
     get_langfuse_client,
@@ -93,29 +94,29 @@ def generate_chapter_metadata(state: BookState) -> BookState:
                     }
                     
                     # 3. 이제 모든 변수가 채워진 상태로 체인을 호출합니다.
-                    llm_chain = prompt_template | llm
-                    raw_response = llm_chain.invoke(prompt_input)
-                    
+                    llm_chain = prompt_template | llm | clean_json_markdown
+                    response_text = llm_chain.invoke(prompt_input)
+
                     # 4. 토큰 정보를 추출합니다.
                     # input_tokens = 0
                     # output_tokens = 0
                     # if hasattr(raw_response, 'usage_metadata') and raw_response.usage_metadata:
                     # input_tokens = raw_response.usage_metadata.get('input_tokens', 0)
                     # output_tokens = raw_response.usage_metadata.get('output_tokens', 0)
-                    
+
                     # total_input_tokens += input_tokens
                     # total_output_tokens += output_tokens
-                    
+
                     # 5. LLM의 텍스트 내용을 파싱합니다 (OutputFixingParser 적용)
                     try:
                         # 1차 시도: 기본 파서
-                        response = base_parser.parse(raw_response.content)
+                        response = base_parser.parse(response_text)
                     except OutputParserException as parse_error:
                         logger.info(
                             f"챕터 {i+1} 파싱 실패, OutputFixingParser로 복구 시도: {str(parse_error)[:50]}..."
                         )
                         # 2차 시도: OutputFixingParser로 자동 복구
-                        response = fixing_parser.parse(raw_response.content)
+                        response = fixing_parser.parse(response_text)
                         logger.info(
                             f"챕터 {i+1} OutputFixingParser를 통한 파싱 복구 성공"
                         )
