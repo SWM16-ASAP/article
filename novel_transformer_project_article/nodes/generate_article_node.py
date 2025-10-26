@@ -210,16 +210,41 @@ def generate_article(state: BookState) -> BookState:
                         response = fixing_parser.parse(response_text)
                         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
-                    # 5.5 lingua로 title, content 영어인지 검증
-                    if not is_english_text(response.title):
-                        logger.warning(f"Attempt {attempt+1}: Generated title is not in English: {response.title[:50]}... Retrying...")
+                    # 5.5 title, content 빈 문자열 및 영어인지 검증
+                    title_stripped = response.title.strip()
+                    content_stripped = response.content.strip()
+
+                    # 빈 문자열 검사
+                    if not title_stripped:
+                        error_msg = f"Attempt {attempt+1}: Generated title is empty"
+                        logger.warning(error_msg)
+                        if attempt == max_retries - 1:
+                            raise ValueError(error_msg)
                         continue
 
-                    if not is_english_text(response.content):
-                        logger.warning(f"Attempt {attempt+1}: Generated content is not in English. Retrying...")
+                    if not content_stripped:
+                        error_msg = f"Attempt {attempt+1}: Generated content is empty"
+                        logger.warning(error_msg)
+                        if attempt == max_retries - 1:
+                            raise ValueError(error_msg)
                         continue
 
-                    logger.info(f"Attempt {attempt+1}: Title and content language validation passed")
+                    # 영어 검증
+                    if not is_english_text(title_stripped):
+                        error_msg = f"Attempt {attempt+1}: Generated title is not in English: {title_stripped[:50]}..."
+                        logger.warning(error_msg)
+                        if attempt == max_retries - 1:
+                            raise ValueError(error_msg)
+                        continue
+
+                    if not is_english_text(content_stripped):
+                        error_msg = f"Attempt {attempt+1}: Generated content is not in English"
+                        logger.warning(error_msg)
+                        if attempt == max_retries - 1:
+                            raise ValueError(error_msg)
+                        continue
+
+                    logger.info(f"Attempt {attempt+1}: Title and content validation passed (non-empty and English)")
 
                     # 6. 수동 길이 검증 및 확장 로직
                     article_content = response.content.strip()

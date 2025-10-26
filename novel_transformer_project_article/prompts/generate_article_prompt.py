@@ -19,6 +19,7 @@ def get_article_generation_prompt(is_lifestyle: bool = False) -> ChatPromptTempl
             - content MUST be over 1000 characters and under 1500 characters.
             - content MUST NOT mention or suggest sharing on any other apps, websites, or social media platforms (e.g., TikTok, Instagram, X, Facebook).
             - The final output MUST be in a JSON format with 'title' and 'content' keys.
+            - The final output MUST be in ENGLISH.
             {format_instructions}
         </guidelines>"""
 
@@ -83,8 +84,9 @@ def get_article_generation_prompt(is_lifestyle: bool = False) -> ChatPromptTempl
 
     human_prompt_topic = """
     <topic_instructions>
-        Based on the following multiple source materials, create interesting news article with a title and content.
+        Based on the following multiple source materials, create interesting **english news article** with a title and content.
         Synthesize the information from all sources to create a comprehensive and engaging article.
+        Source materials can not be english, but you should create **englsih article** as response.
 
         title should be written at A1 level and 60 characters or less.
         content should be written at C1 level and over 1000 characters and under 1500 characters.
