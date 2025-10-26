@@ -177,7 +177,7 @@ def _get_recent_article_headlines(state: BookState) -> List[str]:
 
 
 def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[str]:
-    """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정"""
+    """LLM을 사용하여 헤드라인에서 가��� 적합한 주제 3개 선정"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
     # 헤드라인 텍스트 생성
@@ -468,6 +468,140 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
     return combined_text.strip()
 
 
+def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_count: int = 3, state: BookState = None) -> str:
+    """
+    Diffbot API를 사용하여 기사 URL에서 제목과 본문 파싱
+
+    Args:
+        article_data: Tavily에서 가져온 기사 데이터 리스트
+                     각 항목: {"url": str, "raw_content": str, "score": float, "title": str}
+        target_count: 목표 기사 개수 (기본값: 3)
+        state: BookState (에러 알림용)
+
+    Returns:
+        파싱된 기사들을 결합한 텍스트 (포맷: === 기사 제목 ===\n본문)
+
+    Raises:
+        ValueError: DIFFBOT_API_TOKEN이 없거나 파싱된 기사가 1개 이하인 경우
+    """
+    logger.info(f"Diffbot API로 기사 파싱 시작 (목표: {target_count}개)")
+
+    # Diffbot API 토큰 확인
+    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
+    if not diffbot_token:
+        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
+
+    parsed_articles = []
+    failed_count = 0
+
+    for i, article in enumerate(article_data):
+        # 목표 개수 달성하면 종료
+        if len(parsed_articles) >= target_count:
+            logger.info(f"목표 기사 {target_count}개 파싱 완료")
+            break
+
+        try:
+            url = article.get("url", "")
+            if not url:
+                logger.warning(f"  ⚠️ URL이 없는 기사 데이터 건너뜀")
+                failed_count += 1
+                continue
+
+            logger.info(f"[{i+1}/{len(article_data)}] Diffbot 파싱 시도: {url}")
+
+            # Diffbot API 호출
+            api_url = "https://api.diffbot.com/v3/article"
+
+            headers = {"accept": "application/json"}
+
+            params = {
+                'url': url,
+                'token': diffbot_token
+            }
+
+            response = requests.get(api_url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # objects 배열에서 첫 번째 기사 추출
+            if not data.get('objects') or len(data['objects']) == 0:
+                logger.warning(f"  ⚠️ Diffbot 응답에 objects가 없음")
+                failed_count += 1
+                continue
+
+            diffbot_article = data['objects'][0]
+
+            # 제목과 본문 추출
+            title = diffbot_article.get('title', '').strip()
+            text = diffbot_article.get('text', '').strip()
+
+            # 제목과 본문 검증
+            if not title or not text or len(text) < 50:
+                logger.warning(f"  ⚠️ 제목 또는 본문이 부족함 - 제목: '{title[:50]}', 본문 길이: {len(text)}자")
+                failed_count += 1
+                continue
+
+            # 성공적으로 파싱됨
+            parsed_articles.append({
+                "title": title,
+                "content": text
+            })
+            logger.info(f"  ✅ 파싱 성공 - 제목: {title[:50]}..., 본문 길이: {len(text)}자")
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"  ❌ Diffbot API 타임아웃: {url}")
+            failed_count += 1
+            continue
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"  ❌ Diffbot API 요청 실패: {url} - 오류: {str(e)[:100]}")
+            failed_count += 1
+            continue
+        except Exception as e:
+            logger.warning(f"  ❌ 파싱 실패: {url} - 오류: {str(e)[:100]}")
+            failed_count += 1
+            continue
+
+    # 결과 확인
+    parsed_count = len(parsed_articles)
+    logger.info(f"Diffbot 파싱 완료: 성공 {parsed_count}개, 실패 {failed_count}개")
+
+    # 1개 이하면 에러
+    if parsed_count <= 1:
+        error_msg = f"기사 파싱 실패: {parsed_count}개만 성공 (최소 2개 필요). 주제: {state.get('topic', 'N/A') if state else 'N/A'}"
+        logger.error(error_msg)
+
+        # 디스코드 알림
+        discord_message = f"""⚠️ **기사 파싱 실패 (Diffbot)** ⚠️
+
+        **Request ID**: {state.get('id', 'N/A') if state else 'N/A'}
+        **주제**: {state.get('topic', 'N/A') if state else 'N/A'}
+        **카테고리**: {state.get('tags', ['N/A'])[0] if state and state.get('tags') else 'N/A'}
+        **언어**: {state.get('language', 'N/A') if state else 'N/A'}
+
+        **파싱 결과**: {parsed_count}개 성공 (최소 2개 필요)
+        **시도한 URL 개수**: {len(article_data)}개
+        **실패한 URL 개수**: {failed_count}개
+
+        Diffbot API로 기사를 파싱했으나 충분한 기사를 확보하지 못했습니다."""
+
+        send_discord_webhook(discord_message)
+        raise ValueError(error_msg)
+
+    # 2개 이상이면 진행
+    logger.info(f"✅ 파싱된 기사 {parsed_count}개로 진행")
+
+    # 기사들을 하나의 텍스트로 결합
+    combined_text = ""
+    for i, article in enumerate(parsed_articles, 1):
+        combined_text += f"\n\n=== {article['title']} ===\n"
+        combined_text += article['content']
+
+    logger.info(f"결합된 텍스트 길이: {len(combined_text):,}자")
+
+    return combined_text.strip()
+
+
 def _parse_articles_with_newspaper(article_urls: List[str], target_count: int = 3, state: BookState = None) -> str:
     """
     newspaper3k를 사용하여 기사 URL에서 제목과 본문 파싱
@@ -649,7 +783,7 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
                 article_data = _fetch_articles_with_tavily(topic.title, max_results=20, min_score=0.5)
 
                 # score 0.5 이상인 기사가 5개 이상인지 확인
-                if len(article_data) >= 5:
+                if len(article_data) >= 3:
                     logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
                     selected_topic = topic
                     selected_topic_url = topic.url
@@ -685,7 +819,7 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         logger.info(f"최종 선정된 주제: {selected_topic.title}")
 
         # 4. LLM으로 기사 파싱 (최소 2개, 목표 3개)
-        articles_text = _parse_articles_with_llm(article_data, target_count=3, state=state)
+        articles_text = _parse_articles_with_diffbot(article_data, target_count=3, state=state)
 
         # 5. state에 저장
         state["full_text"] = articles_text
