@@ -85,57 +85,99 @@ def generate_cover_image(state: BookState) -> BookState:
 
     logger.info("OpenRouter GPT-5-image-mini로 커버 이미지 생성 중...")
 
-    try:
-        # Create image generation request using chat.completions with example image URL
-        completion = client.chat.completions.create(
-            model=image_model_id,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": image_prompt
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": example_image_url
+    max_retry = 3
+    for attempt in range(1, max_retry + 1):
+        logger.info(f"이미지 생성 시도 {attempt}/{max_retry}")
+
+        try:
+            # Create image generation request using chat.completions with example image URL
+            completion = client.chat.completions.create(
+                model=image_model_id,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": image_prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": example_image_url
+                                }
                             }
-                        }
-                    ]
-                }
-            ]
-        )
+                        ]
+                    }
+                ]
+            )
 
-        # 이미지는 message.images 필드에 있음
-        message = completion.choices[0].message
+            # 전체 응답 구조 디버깅
+            logger.info(f"=== 전체 응답 디버깅 ===")
+            # usage 정보 로깅
+            completion_tokens = 0
+            if hasattr(completion, 'usage') and completion.usage:
+                logger.info(f"Usage 정보: {completion.usage}")
+                logger.info(f"  - prompt_tokens: {completion.usage.prompt_tokens}")
+                logger.info(f"  - completion_tokens: {completion.usage.completion_tokens}")
+                logger.info(f"  - total_tokens: {completion.usage.total_tokens}")
+                completion_tokens = completion.usage.completion_tokens
+            else:
+                logger.warning("usage 정보가 없습니다!")
 
-        # images 필드 확인
-        if not hasattr(message, 'images') or not message.images:
-            error_msg = "응답에 images 필드가 없거나 비어있습니다."
-            logger.error(error_msg)
-            raise ValueError(error_msg)
+            # choices 확인
+            finish_reason = None
+            if hasattr(completion, 'choices') and completion.choices:
 
-        logger.info(f"생성된 이미지 개수: {len(message.images)}")
+                # finish_reason 확인
+                if hasattr(completion.choices[0], 'finish_reason'):
+                    finish_reason = completion.choices[0].finish_reason
+                    logger.info(f"finish_reason: {finish_reason}")
+                else:
+                    logger.warning("finish_reason이 없습니다!")
+            else:
+                logger.error("choices가 없거나 비어있습니다!")
 
-        # 첫 번째 이미지 추출 (dict 형식)
-        first_image = message.images[0]
-        base64_image = first_image['image_url']['url']
+            # 재시도 조건 체크: completion_tokens가 0이거나 finish_reason이 None/빈 문자열
+            if completion_tokens == 0 or not finish_reason:
+                logger.warning(f"응답이 불완전합니다 (completion_tokens: {completion_tokens}, finish_reason: {finish_reason})")
+                if attempt < max_retry:
+                    logger.info(f"재시도합니다... ({attempt}/{max_retry})")
+                    continue
+                else:
+                    error_msg = f"최대 재시도 횟수({max_retry})를 초과했습니다. completion_tokens: {completion_tokens}, finish_reason: {finish_reason}"
+                    logger.error(error_msg)
+                    raise ValueError(error_msg)
 
-        # 토큰 사용량 추적
-        input_tokens = completion.usage.prompt_tokens if completion.usage else 0
-        output_tokens = completion.usage.completion_tokens if completion.usage else 1
-        update_usage_metrics(state, image_model_id, input_tokens, output_tokens)
+            # 이미지는 message.images 필드에 있음
+            message = completion.choices[0].message
 
-        # Store the base64 image data
-        state["cover_image_url"] = base64_image
-        logger.info("=== 커버 이미지 생성 완료 ===")
+            # images 필드 확인
+            if not hasattr(message, 'images') or not message.images:
+                error_msg = "응답에 images 필드가 없거나 비어있습니다."
+                logger.error(error_msg)
+                raise ValueError(error_msg)
 
-    except Exception as e:
-        logger.error(f"OpenRouter를 통한 이미지 생성 중 오류 발생: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
-        raise
+            logger.info(f"생성된 이미지 개수: {len(message.images)}")
+
+            # 첫 번째 이미지 추출 (dict 형식)
+            first_image = message.images[0]
+            base64_image = first_image['image_url']['url']
+
+            # 토큰 사용량 추적
+            input_tokens = completion.usage.prompt_tokens if completion.usage else 0
+            output_tokens = completion.usage.completion_tokens if completion.usage else 1
+            update_usage_metrics(state, image_model_id, input_tokens, output_tokens)
+
+            # Store the base64 image data
+            state["cover_image_url"] = base64_image
+            logger.info("=== 커버 이미지 생성 완료 ===")
+
+            # 성공했으면 루프 종료
+            break
+
+        except Exception as e:
+            logger.error(f"OpenRouter를 통한 이미지 생성 중 오류 발생: {e}")
+            raise
 
     return state

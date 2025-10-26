@@ -52,7 +52,7 @@ ARTICLE_MODEL_ID = "us.meta.llama4-maverick-17b-instruct-v1:0"
 
 # 기사 생성 결과를 위한 Pydantic 모델
 class ArticleGeneration(BaseModel):
-    title: str = Field(max_length=70, description="headline for the article")
+    title: str = Field(max_length=80, description="headline for the article")
     content: str = Field(max_length=1500, description="The main content of the article, under 1500 characters")
     # min_length 제거: 파싱 후 수동으로 길이 검증하여 OutputFixingParser로의 즉시 전달 방지
 
