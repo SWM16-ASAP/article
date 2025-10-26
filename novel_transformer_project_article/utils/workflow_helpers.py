@@ -48,6 +48,9 @@ MODEL_PRICING = {
     },
     "us.amazon.nova-lite-v1:0": {
         "input": 0.00000006, "output": 0.000000015
+    }, 
+    "openai/gpt-5-image-mini": { # 사진 아무리 비싸도 0.013 비슷하게 아래로 나온다.
+        "input": 0, "output": 0.013
     }
     # Add other models here
 }

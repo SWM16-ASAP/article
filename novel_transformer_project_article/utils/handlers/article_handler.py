@@ -191,6 +191,7 @@ class ArticleHandler:
             category = tags[0] if tags else "Unknown"
             language = final_state.get("target_language_code", "Unknown")
             title = final_state.get("title", "Unknown")
+            cost = final_state.get("total_cost", 0)
 
             discord_message = f"""✅ **기사 생성 완료** ✅
 
@@ -199,6 +200,7 @@ class ArticleHandler:
             **제목**: {title}
             **카테고리**: {category}
             **언어**: {language}
+            **비용**: {cost}
 
             **S3 저장 경로**: `s3://{output_bucket}/{content_type}/{output_folder_key}/`
             **백엔드 알림**: 성공

@@ -111,7 +111,6 @@ def generate_cover_image(state: BookState) -> BookState:
                     }
                 ]
             )
-
             # 전체 응답 구조 디버깅
             logger.info(f"=== 전체 응답 디버깅 ===")
             # usage 정보 로깅
@@ -165,9 +164,7 @@ def generate_cover_image(state: BookState) -> BookState:
             base64_image = first_image['image_url']['url']
 
             # 토큰 사용량 추적
-            input_tokens = completion.usage.prompt_tokens if completion.usage else 0
-            output_tokens = completion.usage.completion_tokens if completion.usage else 1
-            update_usage_metrics(state, image_model_id, input_tokens, output_tokens)
+            update_usage_metrics(state, image_model_id, 0, 1)
 
             # Store the base64 image data
             state["cover_image_url"] = base64_image
