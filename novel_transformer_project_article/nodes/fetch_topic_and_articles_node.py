@@ -96,13 +96,15 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
         logger.error(f"Google News RSS 호출 중 오류: {e}")
         raise
 
-def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookState) -> List[Dict[str, str]]:
+def _get_recent_article_headlines(state: BookState) -> List[str]:
     """
-    백엔드를 통해 최근 기사들을 가져와서 headlines에서 최근 사용한 주제는 제거하기
-    url 기반 중복 검사
+    백엔드를 통해 최근 기사들을 가져오기
+
+    Returns:
+        List[str]: 백엔드에서 가져온 최근 기사 제목 리스트
     """
 
-    # 백엔드 API 
+    # 백엔드 API
     swagger_api_key = os.getenv("SWAPPER_API_KEY")
     backend_url = os.getenv("READ_PAST_ARTICLE_URL")
 
@@ -114,7 +116,7 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
     # 이미 대문자로 들어오므로 upper() 불필요
     # targetLanguageCode는 "KO", "JA" 등
-    
+
     # 쿼리 파라미터
     params = {
         "tags" : state.get("tags")[0].strip(),
@@ -146,48 +148,26 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
         logger.info(f"백엔드에서 {len(article_data)}개 최근 기사 가져옴")
 
-        # 백엔드 기사의 originUrl 목록 추출
-        recent_urls = set()
+        # 백엔드 기사의 title 목록 추출
+        recent_article_titles = []
         for article in article_data:
-            origin_url = article.get("originUrl", "")
-            if origin_url:
-                recent_urls.add(origin_url.strip())
+            title = article.get("title", "")
+            if title:
+                recent_article_titles.append(title.strip())
 
-        logger.info(f"백엔드에서 {len(recent_urls)}개 고유 URL 추출")
+        logger.info(f"백엔드에서 {len(recent_article_titles)}개 기사 제목 추출")
 
-        # headlines에서 중복 URL 제거 (포함 관계로 체크)
-        filtered_headlines = []
-        duplicates_found = 0
-
-        for headline in headlines:
-            headline_url = headline.get("url", "").strip()
-
-            # URL이 포함되어 있으면 중복으로 판단 (양방향 체크)
-            is_duplicate = any(
-                headline_url in recent_url or recent_url in headline_url
-                for recent_url in recent_urls
-            )
-
-            if is_duplicate:
-                logger.info(f"중복 발견 (URL 포함): {headline.get('title', '')[:50]}")
-                duplicates_found += 1
-            else:
-                filtered_headlines.append(headline)
-
-        logger.info(f"중복 제거 완료: {duplicates_found}개 제거, {len(filtered_headlines)}개 남음")
-
-        return filtered_headlines
+        return recent_article_titles
 
     except requests.exceptions.Timeout:
-        logger.error("백엔드 API 타임아웃 - 중복 체크 건너뜀")
-        return headlines  # 에러 시 원본 반환
+        logger.error("_get_recent_article_headlines error - 백엔드 API 타임아웃 - 빈 리스트 반환 ")
+        return []  # 에러 시 빈 제목 리스트
     except Exception as e:
-        logger.error(f"_remove_duplicate_headlines error: {e} - 중복 체크 건너뜀")
-        return headlines  # 에러 시 원본 반환
+        logger.error(f"_get_recent_article_headlines error {e} - 빈 리스트 반환")
+        return []  # 에러 시 빈 제목 리스트
 
 
-
-def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) -> List[str]:
+def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[str]:
     """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
@@ -213,57 +193,62 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) ->
         max_retries=3
     )
 
-    # 프롬프트
-    from langchain.prompts import PromptTemplate
 
-    prompt = PromptTemplate(
-        template="""다음은 오늘의 뉴스 헤드라인입니다:
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """ 
+            당신은 오늘의 기사를 선정을 전문적으로 하는 편집장입니다.
 
+            당신의 응답은 아래와 같은 규칙을 지켜야 합니다!!
+            - 아래의 선정 기준에 따라 3개의 기사를 선정합니다.
+            - 3개의 기사는 선정 기준에 더 일치하는 순서대로 제공합니다.
+            - 응답 포맷: {format_instructions}
+
+            당신은 독자들에게 하루에 한번 밖에 글을 제공할 수 밖에 없기에 중대하고 적절한 기사를 선정해야 합니다.
+            당신의 기준은 아래와 같습니다. 
+
+            선정 기준:
+            1. **최근 기사들과 중복되지 않는 주제** : 다음 주제는 제외
+            -  최근 올린 뉴스 주제: {recent_article_headlines}
+
+            2. **메이저한 주제**: 하루에 하나 올리기에 충분히 중요한 주제
+            - 뉴스에서 주요 뉴스로 다룰 법한 주제
+            - 영향력이 국내에 한정되지 않고 국제적으로도 관심을 가질 만한 주제
+            - 사회적 영향력이 큰 사건/정책/기술 혁신
+            - 장기적 관심사 (단발성 사건 지양)
+
+            3. **적절성**: 다음 주제는 반드시 제외
+            - 가십/연예인 사생활/스캔들
+            - 정치적 논란/당파적 이슈
+            - 개인 폭로/루머성 기사
+            - 선정적이거나 자극적인 내용
+
+            4. **교육적 가치**: 독자에게 유익한 정보 제공
+            - 새로운 지식/인사이트 제공
+            - 트렌드의 배경과 맥락 이해
+            - 실생활에 도움이 되는 정보
+        """),
+        ("human", """ 다음은 오늘의 뉴스 헤드라인입니다:
         {headlines}
 
-        위 헤드라인들을 분석하여 한국과 일본 독자들에게 가장 흥미롭고 교육적인 기사 주제를 **3개** 선정하세요.
+        위 헤드라인들을 분석하여 오늘의 가장 중요하고 영향력이 큰 기사 주제를 **3개** 선정하세요.
         선정된 기사들의 제목과 url을 함께 반환해주세요
         가장 메이저하고 중요한 순서대로 정렬해주세요 (1번이 가장 중요).
 
-
         **Critical**: 선정된 기사에 대해서는 주제의 제목과 url을 변경하거나 번역하지 말고 그대로 반환하세요!!!
 
-        선정 기준:
-        1. **메이저한 주제**: 하루에 하나 올리기에 충분히 중요한 주제
-        - 사회적 영향력이 큰 사건/정책/기술 혁신
-        - 국제적으로도 관심을 가질 만한 주제
-        - 장기적 관심사 (단발성 사건 지양)
-
-        2. **적절성**: 다음 주제는 반드시 제외
-        - 가십/연예인 사생활/스캔들
-        - 정치적 논란/당파적 이슈
-        - 개인 폭로/루머성 기사
-        - 선정적이거나 자극적인 내용
-
-        3. **교육적 가치**: 독자에게 유익한 정보 제공
-        - 새로운 지식/인사이트 제공
-        - 트렌드의 배경과 맥락 이해
-        - 실생활에 도움이 되는 정보
-
-        4. **한국-일본 공통 관심사 우대**:
-        - 양국 독자 모두에게 의미 있는 주제 우선
-        - 글로벌 관점에서 접근 가능한 주제
-
-
+        아래와 같은 양식으로 반환해주세요.
         {format_instructions}
-        """,
-        input_variables=["headlines"],
-        partial_variables={"format_instructions": base_parser.get_format_instructions()}
-    )
+        """)
+    ])
 
     chain = prompt | llm | clean_json_markdown
-    reponse = chain.invoke({"headlines": headlines_text})
+    response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
 
     try:
-        response = base_parser.parse(reponse)
+        response = base_parser.parse(response)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(reponse)
+        response = fixing_parser.parse(response)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
@@ -645,10 +630,10 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
 
 
         # 2.5. 백엔드에 api를 쏴서 겹치는 것들 제거
+        recent_article_headlines = _get_recent_article_headlines(state)
 
-        headlines = _remove_duplicate_headlines(headlines, state);
         # 2. LLM으로 주제 3개 선정 (중요도 순)
-        topic_candidates = _select_topic_with_llm(headlines, state)
+        topic_candidates = _select_topic_with_llm(headlines, recent_article_headlines, state)
 
         # 3. 각 주제에 대해 순차적으로 시도
         selected_topic = None
