@@ -821,6 +821,11 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         # 4. LLM으로 기사 파싱 (최소 2개, 목표 3개)
         articles_text = _parse_articles_with_diffbot(article_data, target_count=3, state=state)
 
+        # 4.5. 기사 텍스트를 10000자로 제한
+        if len(articles_text) > 10000:
+            articles_text = articles_text[:10000]
+            logger.info(f"기사 텍스트를 10000자로 제한함")
+
         # 5. state에 저장
         state["full_text"] = articles_text
         state["origin_url"] = selected_topic_url
