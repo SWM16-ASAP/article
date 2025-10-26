@@ -2,8 +2,8 @@ name: Article Automation
 
 on:
   schedule:
-    # 매일 UTC 01:00 (KST 10:00) 실행
-    - cron: '0 1 * * *'
+    # 매일 UTC 23:00 (KST 다음날 08:00) 실행
+    - cron: '0 23 * * *'
   workflow_dispatch: # 수동 실행 가능
 
 jobs:
