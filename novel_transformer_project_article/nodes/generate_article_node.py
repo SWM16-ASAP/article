@@ -187,12 +187,12 @@ def generate_article(state: BookState) -> BookState:
 
             # 2. format_instructions를 프롬프트에 추가
             prompt_input = {
-                "topic_content": state["chapters"][0],
+                "topic_content": state["full_text"],
                 "format_instructions": base_parser.get_format_instructions()
             }
 
-            logger.info(f"Processing {len(state['chapters'])} chapter(s) with total length: {len(state['chapters'][0])} characters")
-            logger.info(f"Source preview: {state['chapters'][0][:100]}...")
+            logger.info(f"Processing {len(state['full_text'])} chapter(s) with total length: {len(state['full_text'])} characters")
+            logger.info(f"Source preview: {state['full_text'][:100]}...")
 
             for attempt in range(max_retries):
                 try:
@@ -253,7 +253,7 @@ def generate_article(state: BookState) -> BookState:
                         article_content = _expand_short_article(
                             short_content=article_content,
                             title=response.title,
-                            topic_content=state["chapters"][0],
+                            topic_content=state["full_text"],
                             state=state,
                             target_length=MIN_ARTICLE_LENGTH
                         )

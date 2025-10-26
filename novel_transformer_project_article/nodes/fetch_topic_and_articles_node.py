@@ -8,6 +8,7 @@ from typing import List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 import feedparser
@@ -16,7 +17,15 @@ from newspaper import Article
 from ..state import BookState
 from ..utils.logging_config import get_logger
 from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook, clean_json_markdown
-from langchain_core.prompts import ChatPromptTemplate
+from ..utils.langfuse_client import (
+    get_langfuse_client,
+    is_langfuse_enabled,
+    get_prompt_label,
+    convert_langfuse_to_langchain,
+    get_model_config_from_prompt
+)
+from ..prompts.select_topic_with_llm_prompt import get_select_topic_prompt
+
 
 logger = get_logger(__name__)
 
@@ -177,12 +186,34 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
         for i, h in enumerate(headlines[:30])
     ])
 
-    # LLM 설정
-    config = {
-        "model": "us.meta.llama4-scout-17b-instruct-v1:0",
-        "temperature": 0.3
-    }
-    llm = setup_bedrock(config=config)
+    llm = None
+
+    # Langfuse에서 프롬프트 가져오기 시도
+    if is_langfuse_enabled():
+        try:
+            client = get_langfuse_client()
+            label = get_prompt_label()
+            langfuse_prompt = client.get_prompt("select-topic-with-llm", label=label)
+
+            model_config = get_model_config_from_prompt(langfuse_prompt)
+            llm = setup_bedrock(config=model_config)
+
+            logger.info(f"Loaded 'select-topic-with-llm' from Langfuse (label: {label}, version: {langfuse_prompt.version})")
+            prompt = convert_langfuse_to_langchain(langfuse_prompt)
+        except Exception as e:
+            logger.warning(f"Failed to load prompt from Langfuse, falling back to local: {e}")
+            prompt = get_select_topic_prompt()
+    else:
+        prompt = get_select_topic_prompt()
+
+    # LLM이 Langfuse에서 설정되지 않았으면 기본 설정 사용
+    if llm is None:
+        config = {
+            "model": "us.meta.llama4-scout-17b-instruct-v1:0",
+            "temperature": 0.3
+        }
+        llm = setup_bedrock(config=config)
+
     llm = BedrockTokenTrackingWrapper(llm, state)
 
     # 파서 설정
@@ -192,54 +223,6 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
         llm=llm,
         max_retries=3
     )
-
-
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", """ 
-            당신은 오늘의 기사를 선정을 전문적으로 하는 편집장입니다.
-
-            당신의 응답은 아래와 같은 규칙을 지켜야 합니다!!
-            - 아래의 선정 기준에 따라 3개의 기사를 선정합니다.
-            - 3개의 기사는 선정 기준에 더 일치하는 순서대로 제공합니다.
-            - 응답 포맷: {format_instructions}
-
-            당신은 독자들에게 하루에 한번 밖에 글을 제공할 수 밖에 없기에 중대하고 적절한 기사를 선정해야 합니다.
-            당신의 기준은 아래와 같습니다. 
-
-            선정 기준:
-            1. **최근 기사들과 중복되지 않는 주제** : 다음 주제는 제외
-            -  최근 올린 뉴스 주제: {recent_article_headlines}
-
-            2. **메이저한 주제**: 하루에 하나 올리기에 충분히 중요한 주제
-            - 뉴스에서 주요 뉴스로 다룰 법한 주제
-            - 영향력이 국내에 한정되지 않고 국제적으로도 관심을 가질 만한 주제
-            - 사회적 영향력이 큰 사건/정책/기술 혁신
-            - 장기적 관심사 (단발성 사건 지양)
-
-            3. **적절성**: 다음 주제는 반드시 제외
-            - 가십/연예인 사생활/스캔들
-            - 정치적 논란/당파적 이슈
-            - 개인 폭로/루머성 기사
-            - 선정적이거나 자극적인 내용
-
-            4. **교육적 가치**: 독자에게 유익한 정보 제공
-            - 새로운 지식/인사이트 제공
-            - 트렌드의 배경과 맥락 이해
-            - 실생활에 도움이 되는 정보
-        """),
-        ("human", """ 다음은 오늘의 뉴스 헤드라인입니다:
-        {headlines}
-
-        위 헤드라인들을 분석하여 오늘의 가장 중요하고 영향력이 큰 기사 주제를 **3개** 선정하세요.
-        선정된 기사들의 제목과 url을 함께 반환해주세요
-        가장 메이저하고 중요한 순서대로 정렬해주세요 (1번이 가장 중요).
-
-        **Critical**: 선정된 기사에 대해서는 주제의 제목과 url을 변경하거나 번역하지 말고 그대로 반환하세요!!!
-
-        아래와 같은 양식으로 반환해주세요.
-        {format_instructions}
-        """)
-    ])
 
     chain = prompt | llm | clean_json_markdown
     response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
@@ -688,7 +671,6 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
 
         # 5. state에 저장
         state["full_text"] = articles_text
-        state["chapters"] = [articles_text]
         state["origin_url"] = selected_topic_url
 
         logger.info(f"=== 주제 선정 및 기사 수집 완료 ===")
