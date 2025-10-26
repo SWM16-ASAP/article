@@ -270,7 +270,7 @@ def generate_article(state: BookState) -> BookState:
                     
                     # 7. 파싱 및 검증된 결과를 state에 적용
                     state["title"] = response.title
-                    state["chapters"][0] = article_content
+                    state["chapters"] = [article_content]
                     
                     logger.debug(f"기사 생성 완료: {response.title} (시도 {attempt+1}회, 최종 길이: {len(article_content)}자)")
                     break  # 성공했으므로 재시도 루프 탈출
