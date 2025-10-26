@@ -118,18 +118,19 @@ class BedrockTokenTrackingWrapper(Runnable):
     ChatBedrock 객체를 감싸서 토큰 사용량을 추적하는 래퍼 클래스.
     OutputFixingParser와 함께 사용하기 위해 만들어졌습니다.
     """
-    def __init__(self, llm: ChatBedrock, state: BookState = None):
+    def __init__(self, llm: ChatBedrock, state: BookState = None, auto_clean_json: bool = False):
         self.llm = llm
         self.state = state
         self.model_name = ""
         self.last_input_tokens = 0
         self.last_output_tokens = 0
+        self.auto_clean_json = auto_clean_json
 
     def invoke(self, input: Any, config=None, **kwargs) -> AIMessage:
         """LLM을 호출하고 토큰 사용량을 추적합니다."""
         self.clear_last_usage()
         response = self.llm.invoke(input, config=config, **kwargs)
-        
+
         # 토큰 사용량 추출
         if hasattr(response, 'usage_metadata') and response.usage_metadata:
             self.last_input_tokens = response.usage_metadata.get("input_tokens", 0)
@@ -150,7 +151,17 @@ class BedrockTokenTrackingWrapper(Runnable):
         if self.state:
             update_usage_metrics(self.state, self.model_name, self.last_input_tokens, self.last_output_tokens)
             logger.debug(f"토큰 사용량 업데이트: {self.model_name} - 입력: {self.last_input_tokens}, 출력: {self.last_output_tokens}")
-        
+
+        # auto_clean_json이 True면 자동으로 clean_json_markdown 적용
+        if self.auto_clean_json:
+            cleaned_content = clean_json_markdown(response)
+            # AIMessage 객체를 새로 만들어서 반환 (metadata는 유지)
+            response = AIMessage(
+                content=cleaned_content,
+                response_metadata=response.response_metadata if hasattr(response, 'response_metadata') else {},
+                usage_metadata=response.usage_metadata if hasattr(response, 'usage_metadata') else {}
+            )
+
         return response
 
     def clear_last_usage(self):

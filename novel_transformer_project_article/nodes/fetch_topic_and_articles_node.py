@@ -8,6 +8,7 @@ from typing import List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 import feedparser
@@ -15,8 +16,16 @@ from tavily import TavilyClient
 from newspaper import Article
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook, clean_json_markdown
-from langchain_core.prompts import ChatPromptTemplate
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook
+from ..utils.langfuse_client import (
+    get_langfuse_client,
+    is_langfuse_enabled,
+    get_prompt_label,
+    convert_langfuse_to_langchain,
+    get_model_config_from_prompt
+)
+from ..prompts.select_topic_with_llm_prompt import get_select_topic_prompt
+
 
 logger = get_logger(__name__)
 
@@ -96,13 +105,15 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
         logger.error(f"Google News RSS 호출 중 오류: {e}")
         raise
 
-def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookState) -> List[Dict[str, str]]:
+def _get_recent_article_headlines(state: BookState) -> List[str]:
     """
-    백엔드를 통해 최근 기사들을 가져와서 headlines에서 최근 사용한 주제는 제거하기
-    url 기반 중복 검사
+    백엔드를 통해 최근 기사들을 가져오기
+
+    Returns:
+        List[str]: 백엔드에서 가져온 최근 기사 제목 리스트
     """
 
-    # 백엔드 API 
+    # 백엔드 API
     swagger_api_key = os.getenv("SWAPPER_API_KEY")
     backend_url = os.getenv("READ_PAST_ARTICLE_URL")
 
@@ -114,7 +125,7 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
     # 이미 대문자로 들어오므로 upper() 불필요
     # targetLanguageCode는 "KO", "JA" 등
-    
+
     # 쿼리 파라미터
     params = {
         "tags" : state.get("tags")[0].strip(),
@@ -146,49 +157,27 @@ def _remove_duplicate_headlines(headlines: List[Dict[str, str]], state: BookStat
 
         logger.info(f"백엔드에서 {len(article_data)}개 최근 기사 가져옴")
 
-        # 백엔드 기사의 originUrl 목록 추출
-        recent_urls = set()
+        # 백엔드 기사의 title 목록 추출
+        recent_article_titles = []
         for article in article_data:
-            origin_url = article.get("originUrl", "")
-            if origin_url:
-                recent_urls.add(origin_url.strip())
+            title = article.get("title", "")
+            if title:
+                recent_article_titles.append(title.strip())
 
-        logger.info(f"백엔드에서 {len(recent_urls)}개 고유 URL 추출")
+        logger.info(f"백엔드에서 {len(recent_article_titles)}개 기사 제목 추출")
 
-        # headlines에서 중복 URL 제거 (포함 관계로 체크)
-        filtered_headlines = []
-        duplicates_found = 0
-
-        for headline in headlines:
-            headline_url = headline.get("url", "").strip()
-
-            # URL이 포함되어 있으면 중복으로 판단 (양방향 체크)
-            is_duplicate = any(
-                headline_url in recent_url or recent_url in headline_url
-                for recent_url in recent_urls
-            )
-
-            if is_duplicate:
-                logger.info(f"중복 발견 (URL 포함): {headline.get('title', '')[:50]}")
-                duplicates_found += 1
-            else:
-                filtered_headlines.append(headline)
-
-        logger.info(f"중복 제거 완료: {duplicates_found}개 제거, {len(filtered_headlines)}개 남음")
-
-        return filtered_headlines
+        return recent_article_titles
 
     except requests.exceptions.Timeout:
-        logger.error("백엔드 API 타임아웃 - 중복 체크 건너뜀")
-        return headlines  # 에러 시 원본 반환
+        logger.error("_get_recent_article_headlines error - 백엔드 API 타임아웃 - 빈 리스트 반환 ")
+        return []  # 에러 시 빈 제목 리스트
     except Exception as e:
-        logger.error(f"_remove_duplicate_headlines error: {e} - 중복 체크 건너뜀")
-        return headlines  # 에러 시 원본 반환
+        logger.error(f"_get_recent_article_headlines error {e} - 빈 리스트 반환")
+        return []  # 에러 시 빈 제목 리스트
 
 
-
-def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) -> List[str]:
-    """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정"""
+def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[str]:
+    """LLM을 사용하여 헤드라인에서 가��� 적합한 주제 3개 선정"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
     # 헤드라인 텍스트 생성
@@ -197,73 +186,53 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], state: BookState) ->
         for i, h in enumerate(headlines[:30])
     ])
 
-    # LLM 설정
-    config = {
-        "model": "us.meta.llama4-scout-17b-instruct-v1:0",
-        "temperature": 0.3
-    }
-    llm = setup_bedrock(config=config)
-    llm = BedrockTokenTrackingWrapper(llm, state)
+    llm = None
+
+    # Langfuse에서 프롬프트 가져오기 시도
+    if is_langfuse_enabled():
+        try:
+            client = get_langfuse_client()
+            label = get_prompt_label()
+            langfuse_prompt = client.get_prompt("select-topic-with-llm", label=label)
+
+            model_config = get_model_config_from_prompt(langfuse_prompt)
+            llm = setup_bedrock(config=model_config)
+
+            logger.info(f"Loaded 'select-topic-with-llm' from Langfuse (label: {label}, version: {langfuse_prompt.version})")
+            prompt = convert_langfuse_to_langchain(langfuse_prompt)
+        except Exception as e:
+            logger.warning(f"Failed to load prompt from Langfuse, falling back to local: {e}")
+            prompt = get_select_topic_prompt()
+    else:
+        prompt = get_select_topic_prompt()
+
+    # LLM이 Langfuse에서 설정되지 않았으면 기본 설정 사용
+    if llm is None:
+        config = {
+            "model": "us.meta.llama4-scout-17b-instruct-v1:0",
+            "temperature": 0.3
+        }
+        llm = setup_bedrock(config=config)
+
+    # OutputFixingParser가 clean_json_markdown을 자동으로 적용하도록 auto_clean_json=True 설정
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
     # 파서 설정
     base_parser = PydanticOutputParser(pydantic_object=TopicSelection)
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
-        llm=llm,
+        llm=llm,  # clean_json_markdown을 자동으로 적용하는 LLM 사용
         max_retries=3
     )
 
-    # 프롬프트
-    from langchain.prompts import PromptTemplate
-
-    prompt = PromptTemplate(
-        template="""다음은 오늘의 뉴스 헤드라인입니다:
-
-        {headlines}
-
-        위 헤드라인들을 분석하여 한국과 일본 독자들에게 가장 흥미롭고 교육적인 기사 주제를 **3개** 선정하세요.
-        선정된 기사들의 제목과 url을 함께 반환해주세요
-        가장 메이저하고 중요한 순서대로 정렬해주세요 (1번이 가장 중요).
-
-
-        **Critical**: 선정된 기사에 대해서는 주제의 제목과 url을 변경하거나 번역하지 말고 그대로 반환하세요!!!
-
-        선정 기준:
-        1. **메이저한 주제**: 하루에 하나 올리기에 충분히 중요한 주제
-        - 사회적 영향력이 큰 사건/정책/기술 혁신
-        - 국제적으로도 관심을 가질 만한 주제
-        - 장기적 관심사 (단발성 사건 지양)
-
-        2. **적절성**: 다음 주제는 반드시 제외
-        - 가십/연예인 사생활/스캔들
-        - 정치적 논란/당파적 이슈
-        - 개인 폭로/루머성 기사
-        - 선정적이거나 자극적인 내용
-
-        3. **교육적 가치**: 독자에게 유익한 정보 제공
-        - 새로운 지식/인사이트 제공
-        - 트렌드의 배경과 맥락 이해
-        - 실생활에 도움이 되는 정보
-
-        4. **한국-일본 공통 관심사 우대**:
-        - 양국 독자 모두에게 의미 있는 주제 우선
-        - 글로벌 관점에서 접근 가능한 주제
-
-
-        {format_instructions}
-        """,
-        input_variables=["headlines"],
-        partial_variables={"format_instructions": base_parser.get_format_instructions()}
-    )
-
-    chain = prompt | llm | clean_json_markdown
-    reponse = chain.invoke({"headlines": headlines_text})
+    chain = prompt | llm
+    raw_response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
 
     try:
-        response = base_parser.parse(reponse)
+        response = base_parser.parse(raw_response.content)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(reponse)
+        response = fixing_parser.parse(raw_response.content)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
@@ -316,17 +285,34 @@ def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: fl
             reverse=True
         )
 
-        # URL, raw_content, score, title 추출
-        article_data = [
-            {
+        # 중복 제거를 위한 제목 추적 set
+        seen_titles = set()
+        article_data = []
+
+        for article in sorted_articles:
+            # URL과 raw_content가 있는지 확인
+            if not article.get("url") or not article.get("raw_content"):
+                continue
+
+            title = article.get("title", "").strip()
+
+            # 제목에서 언론사 부분 제거 (예: "제목 - 연합뉴스" -> "제목")
+            # 마지막 " - " 이후를 언론사로 간주하고 제거
+            title_without_source = title.rsplit(" - ", 1)[0].strip() if " - " in title else title
+
+            # 제목이 비어있거나 이미 본 제목이면 건너뛰기
+            if not title_without_source or title_without_source in seen_titles:
+                logger.info(f"중복 기사 제외: {title[:50]}")
+                continue
+
+            # 새로운 제목이면 추가
+            seen_titles.add(title_without_source)
+            article_data.append({
                 "url": article.get("url", ""),
                 "raw_content": article.get("raw_content", ""),
                 "score": article.get("score", 0),
-                "title": article.get("title", "")
-            }
-            for article in sorted_articles
-            if article.get("url") and article.get("raw_content")
-        ]
+                "title": title  # 원본 제목은 그대로 저장
+            })
 
         logger.info(f"Tavily 검색 완료: 전체 {len(articles)}개 중 점수 {min_score} 이상 {len(article_data)}개 필터링")
 
@@ -366,7 +352,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         "max_tokens": 2000
     }
     llm = setup_bedrock(config=config)
-    llm = BedrockTokenTrackingWrapper(llm, state)
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
     # 파서 설정
     base_parser = PydanticOutputParser(pydantic_object=ArticleExtraction)
@@ -394,7 +380,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         여기서 잡다한 정보를 걸러내고 기사의 본문한 추출해서 제공을 해줘""")
     ]).partial(format_instructions=base_parser.get_format_instructions())
 
-    chain = prompt | llm | clean_json_markdown
+    chain = prompt | llm
 
     parsed_articles = []
     failed_count = 0
@@ -409,14 +395,14 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
             logger.info(f"[{i+1}/{len(article_data)}] LLM 파싱 시도: {article['title'][:50]}")
 
             # LLM 호출
-            response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
+            raw_response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
 
             # 파싱
             try:
-                extracted = base_parser.parse(response)
+                extracted = base_parser.parse(raw_response.content)
             except OutputParserException as e:
                 logger.info(f"  파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-                extracted = fixing_parser.parse(response)
+                extracted = fixing_parser.parse(raw_response.content)
                 logger.info("  OutputFixingParser를 통한 파싱 복구 성공")
 
             # 제목과 본문 검증
@@ -464,6 +450,140 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         **실패한 개수**: {failed_count}개
 
         LLM으로 기사를 파싱했으나 충분한 기사를 확보하지 못했습니다."""
+
+        send_discord_webhook(discord_message)
+        raise ValueError(error_msg)
+
+    # 2개 이상이면 진행
+    logger.info(f"✅ 파싱된 기사 {parsed_count}개로 진행")
+
+    # 기사들을 하나의 텍스트로 결합
+    combined_text = ""
+    for i, article in enumerate(parsed_articles, 1):
+        combined_text += f"\n\n=== {article['title']} ===\n"
+        combined_text += article['content']
+
+    logger.info(f"결합된 텍스트 길이: {len(combined_text):,}자")
+
+    return combined_text.strip()
+
+
+def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_count: int = 3, state: BookState = None) -> str:
+    """
+    Diffbot API를 사용하여 기사 URL에서 제목과 본문 파싱
+
+    Args:
+        article_data: Tavily에서 가져온 기사 데이터 리스트
+                     각 항목: {"url": str, "raw_content": str, "score": float, "title": str}
+        target_count: 목표 기사 개수 (기본값: 3)
+        state: BookState (에러 알림용)
+
+    Returns:
+        파싱된 기사들을 결합한 텍스트 (포맷: === 기사 제목 ===\n본문)
+
+    Raises:
+        ValueError: DIFFBOT_API_TOKEN이 없거나 파싱된 기사가 1개 이하인 경우
+    """
+    logger.info(f"Diffbot API로 기사 파싱 시작 (목표: {target_count}개)")
+
+    # Diffbot API 토큰 확인
+    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
+    if not diffbot_token:
+        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
+
+    parsed_articles = []
+    failed_count = 0
+
+    for i, article in enumerate(article_data):
+        # 목표 개수 달성하면 종료
+        if len(parsed_articles) >= target_count:
+            logger.info(f"목표 기사 {target_count}개 파싱 완료")
+            break
+
+        try:
+            url = article.get("url", "")
+            if not url:
+                logger.warning(f"  ⚠️ URL이 없는 기사 데이터 건너뜀")
+                failed_count += 1
+                continue
+
+            logger.info(f"[{i+1}/{len(article_data)}] Diffbot 파싱 시도: {url}")
+
+            # Diffbot API 호출
+            api_url = "https://api.diffbot.com/v3/article"
+
+            headers = {"accept": "application/json"}
+
+            params = {
+                'url': url,
+                'token': diffbot_token
+            }
+
+            response = requests.get(api_url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # objects 배열에서 첫 번째 기사 추출
+            if not data.get('objects') or len(data['objects']) == 0:
+                logger.warning(f"  ⚠️ Diffbot 응답에 objects가 없음")
+                failed_count += 1
+                continue
+
+            diffbot_article = data['objects'][0]
+
+            # 제목과 본문 추출
+            title = diffbot_article.get('title', '').strip()
+            text = diffbot_article.get('text', '').strip()
+
+            # 제목과 본문 검증
+            if not title or not text or len(text) < 50:
+                logger.warning(f"  ⚠️ 제목 또는 본문이 부족함 - 제목: '{title[:50]}', 본문 길이: {len(text)}자")
+                failed_count += 1
+                continue
+
+            # 성공적으로 파싱됨
+            parsed_articles.append({
+                "title": title,
+                "content": text
+            })
+            logger.info(f"  ✅ 파싱 성공 - 제목: {title[:50]}..., 본문 길이: {len(text)}자")
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"  ❌ Diffbot API 타임아웃: {url}")
+            failed_count += 1
+            continue
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"  ❌ Diffbot API 요청 실패: {url} - 오류: {str(e)[:100]}")
+            failed_count += 1
+            continue
+        except Exception as e:
+            logger.warning(f"  ❌ 파싱 실패: {url} - 오류: {str(e)[:100]}")
+            failed_count += 1
+            continue
+
+    # 결과 확인
+    parsed_count = len(parsed_articles)
+    logger.info(f"Diffbot 파싱 완료: 성공 {parsed_count}개, 실패 {failed_count}개")
+
+    # 1개 이하면 에러
+    if parsed_count <= 1:
+        error_msg = f"기사 파싱 실패: {parsed_count}개만 성공 (최소 2개 필요). 주제: {state.get('topic', 'N/A') if state else 'N/A'}"
+        logger.error(error_msg)
+
+        # 디스코드 알림
+        discord_message = f"""⚠️ **기사 파싱 실패 (Diffbot)** ⚠️
+
+        **Request ID**: {state.get('id', 'N/A') if state else 'N/A'}
+        **주제**: {state.get('topic', 'N/A') if state else 'N/A'}
+        **카테고리**: {state.get('tags', ['N/A'])[0] if state and state.get('tags') else 'N/A'}
+        **언어**: {state.get('language', 'N/A') if state else 'N/A'}
+
+        **파싱 결과**: {parsed_count}개 성공 (최소 2개 필요)
+        **시도한 URL 개수**: {len(article_data)}개
+        **실패한 URL 개수**: {failed_count}개
+
+        Diffbot API로 기사를 파싱했으나 충분한 기사를 확보하지 못했습니다."""
 
         send_discord_webhook(discord_message)
         raise ValueError(error_msg)
@@ -645,10 +765,10 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
 
 
         # 2.5. 백엔드에 api를 쏴서 겹치는 것들 제거
+        recent_article_headlines = _get_recent_article_headlines(state)
 
-        headlines = _remove_duplicate_headlines(headlines, state);
         # 2. LLM으로 주제 3개 선정 (중요도 순)
-        topic_candidates = _select_topic_with_llm(headlines, state)
+        topic_candidates = _select_topic_with_llm(headlines, recent_article_headlines, state)
 
         # 3. 각 주제에 대해 순차적으로 시도
         selected_topic = None
@@ -663,7 +783,7 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
                 article_data = _fetch_articles_with_tavily(topic.title, max_results=20, min_score=0.5)
 
                 # score 0.5 이상인 기사가 5개 이상인지 확인
-                if len(article_data) >= 5:
+                if len(article_data) >= 3:
                     logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
                     selected_topic = topic
                     selected_topic_url = topic.url
@@ -699,11 +819,15 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         logger.info(f"최종 선정된 주제: {selected_topic.title}")
 
         # 4. LLM으로 기사 파싱 (최소 2개, 목표 3개)
-        articles_text = _parse_articles_with_llm(article_data, target_count=3, state=state)
+        articles_text = _parse_articles_with_diffbot(article_data, target_count=3, state=state)
+
+        # 4.5. 기사 텍스트를 10000자로 제한
+        if len(articles_text) > 10000:
+            articles_text = articles_text[:10000]
+            logger.info(f"기사 텍스트를 10000자로 제한함")
 
         # 5. state에 저장
         state["full_text"] = articles_text
-        state["chapters"] = [articles_text]
         state["origin_url"] = selected_topic_url
 
         logger.info(f"=== 주제 선정 및 기사 수집 완료 ===")
