@@ -16,7 +16,7 @@ from tavily import TavilyClient
 from newspaper import Article
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook, clean_json_markdown
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook
 from ..utils.langfuse_client import (
     get_langfuse_client,
     is_langfuse_enabled,
@@ -214,24 +214,25 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
         }
         llm = setup_bedrock(config=config)
 
-    llm = BedrockTokenTrackingWrapper(llm, state)
+    # OutputFixingParser가 clean_json_markdown을 자동으로 적용하도록 auto_clean_json=True 설정
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
     # 파서 설정
     base_parser = PydanticOutputParser(pydantic_object=TopicSelection)
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
-        llm=llm,
+        llm=llm,  # clean_json_markdown을 자동으로 적용하는 LLM 사용
         max_retries=3
     )
 
-    chain = prompt | llm | clean_json_markdown
-    response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
+    chain = prompt | llm
+    raw_response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
 
     try:
-        response = base_parser.parse(response)
+        response = base_parser.parse(raw_response.content)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(response)
+        response = fixing_parser.parse(raw_response.content)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
@@ -284,17 +285,34 @@ def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: fl
             reverse=True
         )
 
-        # URL, raw_content, score, title 추출
-        article_data = [
-            {
+        # 중복 제거를 위한 제목 추적 set
+        seen_titles = set()
+        article_data = []
+
+        for article in sorted_articles:
+            # URL과 raw_content가 있는지 확인
+            if not article.get("url") or not article.get("raw_content"):
+                continue
+
+            title = article.get("title", "").strip()
+
+            # 제목에서 언론사 부분 제거 (예: "제목 - 연합뉴스" -> "제목")
+            # 마지막 " - " 이후를 언론사로 간주하고 제거
+            title_without_source = title.rsplit(" - ", 1)[0].strip() if " - " in title else title
+
+            # 제목이 비어있거나 이미 본 제목이면 건너뛰기
+            if not title_without_source or title_without_source in seen_titles:
+                logger.info(f"중복 기사 제외: {title[:50]}")
+                continue
+
+            # 새로운 제목이면 추가
+            seen_titles.add(title_without_source)
+            article_data.append({
                 "url": article.get("url", ""),
                 "raw_content": article.get("raw_content", ""),
                 "score": article.get("score", 0),
-                "title": article.get("title", "")
-            }
-            for article in sorted_articles
-            if article.get("url") and article.get("raw_content")
-        ]
+                "title": title  # 원본 제목은 그대로 저장
+            })
 
         logger.info(f"Tavily 검색 완료: 전체 {len(articles)}개 중 점수 {min_score} 이상 {len(article_data)}개 필터링")
 
@@ -334,7 +352,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         "max_tokens": 2000
     }
     llm = setup_bedrock(config=config)
-    llm = BedrockTokenTrackingWrapper(llm, state)
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
     # 파서 설정
     base_parser = PydanticOutputParser(pydantic_object=ArticleExtraction)
@@ -362,7 +380,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
         여기서 잡다한 정보를 걸러내고 기사의 본문한 추출해서 제공을 해줘""")
     ]).partial(format_instructions=base_parser.get_format_instructions())
 
-    chain = prompt | llm | clean_json_markdown
+    chain = prompt | llm
 
     parsed_articles = []
     failed_count = 0
@@ -377,14 +395,14 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
             logger.info(f"[{i+1}/{len(article_data)}] LLM 파싱 시도: {article['title'][:50]}")
 
             # LLM 호출
-            response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
+            raw_response = chain.invoke({"raw_content": article["raw_content"][:15000]})  # 토큰 제한 고려
 
             # 파싱
             try:
-                extracted = base_parser.parse(response)
+                extracted = base_parser.parse(raw_response.content)
             except OutputParserException as e:
                 logger.info(f"  파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-                extracted = fixing_parser.parse(response)
+                extracted = fixing_parser.parse(raw_response.content)
                 logger.info("  OutputFixingParser를 통한 파싱 복구 성공")
 
             # 제목과 본문 검증

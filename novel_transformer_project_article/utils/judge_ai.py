@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, clean_json_markdown
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper
 from .langfuse_client import (
     get_langfuse_client,
     is_langfuse_enabled,
@@ -124,7 +124,7 @@ def judge_text_for_level(
             }
             llm = setup_bedrock(config=config, client=client)
 
-        llm = BedrockTokenTrackingWrapper(llm, state)
+        llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
         # 파서 설정: 기본 파서와 자동 복구 파서
         base_parser = PydanticOutputParser(pydantic_object=JudgeResult)
@@ -133,7 +133,7 @@ def judge_text_for_level(
             llm=llm,
             max_retries=1  # 복구 시도는 1회만
         )
-        
+
         # 재시도 로직
         for attempt in range(max_retries):
             try:
@@ -146,29 +146,19 @@ def judge_text_for_level(
                     "previous_chunk_context": context.get("previous_chunk_context", "This is the first chunk."),
                     "format_instructions": base_parser.get_format_instructions()
                 }
-                
+
                 # 3. LLM 체인 호출
-                llm_chain = judge_prompt | llm | clean_json_markdown
-                response_text = llm_chain.invoke(prompt_variables)
-
-                # # 4. 토큰 사용량 추출
-                # input_tokens = 0
-                # output_tokens = 0
-                # if hasattr(raw_response, 'usage_metadata') and raw_response.usage_metadata:
-                #     input_tokens = raw_response.usage_metadata.get('input_tokens', 0)
-                #     output_tokens = raw_response.usage_metadata.get('output_tokens', 0)
-
-                # total_input_tokens += input_tokens
-                # total_output_tokens += output_tokens
+                llm_chain = judge_prompt | llm
+                raw_response = llm_chain.invoke(prompt_variables)
 
                 # 5. Pydantic 파서로 응답 파싱 (OutputFixingParser 적용)
                 try:
                     # 1차 시도: 기본 파서
-                    response = base_parser.parse(response_text)
+                    response = base_parser.parse(raw_response.content)
                 except OutputParserException as parse_error:
                     logger.info(f"Judge AI 파싱 실패, OutputFixingParser로 복구 시도: {str(parse_error)[:50]}...")
                     # 2차 시도: OutputFixingParser로 자동 복구
-                    response = fixing_parser.parse(response_text)
+                    response = fixing_parser.parse(raw_response.content)
                     logger.info("OutputFixingParser를 통한 파싱 복구 성공")
                 
                 # 6. 파싱된 결과를 딕셔너리로 변환
@@ -235,9 +225,6 @@ def judge_text_for_level(
         is_acceptable = judge_result.get("is_acceptable", False)
         overall_score = judge_result.get("overall_score", 0)
         
-        # 토큰 사용량을 state에 업데이트
-        # update_usage_metrics(state, model_id, total_input_tokens, total_output_tokens)
-        
         return is_acceptable, judge_result
         
     except Exception as e:
@@ -255,8 +242,5 @@ def judge_text_for_level(
             },
             "feedback": f"Judge evaluation failed due to critical error: {str(e)}"
         }
-        
-        # 토큰 사용량을 state에 업데이트 (에러 발생 시에도)
-        # update_usage_metrics(state, model_id, total_input_tokens, total_output_tokens)
         
         return False, error_result

@@ -7,7 +7,7 @@ from lingua import Language, LanguageDetectorBuilder
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, clean_json_markdown
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper
 from ..utils.langfuse_client import (
     get_langfuse_client,
     is_langfuse_enabled,
@@ -94,7 +94,7 @@ def _expand_short_article(
         }
         llm = setup_bedrock(config=config)
 
-    llm = BedrockTokenTrackingWrapper(llm, state)
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
     base_parser = PydanticOutputParser(pydantic_object=ArticleGeneration)
     fixing_parser = OutputFixingParser.from_llm(
@@ -103,9 +103,9 @@ def _expand_short_article(
         max_retries=1
     )
 
-    chain = prompt | llm | clean_json_markdown
+    chain = prompt | llm
 
-    response_text = chain.invoke({
+    raw_response = chain.invoke({
         "current_length": len(short_content),
         "target_length": target_length,
         "max_length": MAX_ARTICLE_LENGTH,
@@ -117,11 +117,11 @@ def _expand_short_article(
 
     try:
         # 1차 시도: 기본 파서
-        response = base_parser.parse(response_text)
+        response = base_parser.parse(raw_response.content)
     except OutputParserException as parse_error:
         logger.info(f"확장된 기사 파싱 실패, OutputFixingParser로 복구 시도: {str(parse_error)[:50]}...")
         # 2차 시도: OutputFixingParser로 자동 복구
-        response = fixing_parser.parse(response_text)
+        response = fixing_parser.parse(raw_response.content)
         logger.info("확장된 기사 OutputFixingParser를 통한 파싱 복구 성공")
 
     expanded_content = response.content
@@ -173,7 +173,7 @@ def generate_article(state: BookState) -> BookState:
                 }
                 llm = setup_bedrock(config=config)
 
-            llm = BedrockTokenTrackingWrapper(llm, state)
+            llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
             max_retries = 3
 
@@ -197,17 +197,17 @@ def generate_article(state: BookState) -> BookState:
             for attempt in range(max_retries):
                 try:
                     # 3. LLM 체인 호출
-                    llm_chain = prompt_template | llm | clean_json_markdown
-                    response_text = llm_chain.invoke(prompt_input)
+                    llm_chain = prompt_template | llm
+                    raw_response = llm_chain.invoke(prompt_input)
 
                     # 5. Pydantic 파서로 응답 파싱 (OutputFixingParser 적용)
                     try:
                         # 1차 시도: 기본 파서
-                        response = base_parser.parse(response_text)
+                        response = base_parser.parse(raw_response.content)
                     except OutputParserException as parse_error:
                         logger.info(f"기사 생성 파싱 실패, OutputFixingParser로 복구 시도: {str(parse_error)[:50]}...")
                         # 2차 시도: OutputFixingParser로 자동 복구
-                        response = fixing_parser.parse(response_text)
+                        response = fixing_parser.parse(raw_response.content)
                         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
                     # 5.5 title, content 빈 문자열 및 영어인지 검증
