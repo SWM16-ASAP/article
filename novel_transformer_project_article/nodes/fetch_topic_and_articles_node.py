@@ -5,7 +5,7 @@ import os
 import requests
 from re import T
 from typing import List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
@@ -274,11 +274,22 @@ def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: fl
 
     logger.info(f"Tavily로 '{topic}' 관련 기사 {max_results}개 검색 중 (최소 점수: {min_score})...")
 
+    # 날짜 계산: 오늘 날짜와 일주일 전 날짜
+    today = datetime.now()
+    week_ago = today - timedelta(days=7)
+    start_date = week_ago.strftime("%Y-%m-%d")
+    end_date = today.strftime("%Y-%m-%d")
+
+    logger.info(f"검색 기간: {start_date} ~ {end_date}")
+
     try:
         response = tavily.search(
             query=topic,
             max_results=max_results,
-            include_raw_content="markdown"
+            start_date=start_date,
+            end_date=end_date,
+            include_raw_content="markdown",
+            exclude_domains=["youtube.com","x.com","instagram.com","facebook.com"]
         )
 
         articles = response.get("results", [])
