@@ -177,7 +177,7 @@ def _get_recent_article_headlines(state: BookState) -> List[str]:
 
 
 def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[str]:
-    """LLM을 사용하여 헤드라인에서 가��� 적합한 주제 3개 선정"""
+    """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
     # 헤드라인 텍스트 생성
@@ -225,8 +225,19 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
         max_retries=3
     )
 
+    country = "korea"
+    if state.get("target_language_code") == "JA" :
+        country = "japan"
+
     chain = prompt | llm
-    raw_response = chain.invoke({"headlines": headlines_text, "recent_article_headlines": recent_article_headlines, "format_instructions": base_parser.get_format_instructions()})
+    raw_response = chain.invoke(
+        {
+            "headlines": headlines_text, 
+            "recent_article_headlines": recent_article_headlines, 
+            "format_instructions": base_parser.get_format_instructions(),
+            "country": country,
+            "category": state.get("tags")[0]
+        })
 
     try:
         response = base_parser.parse(raw_response.content)
