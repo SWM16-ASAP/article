@@ -1003,7 +1003,7 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
             **시도한 주제 후보들**:
             {chr(10).join([f"{i}. {topic.title}" for i, topic in enumerate(topic_candidates, 1)])}
 
-            모든 주제에서 score 0.5 이상 기사 5개 이상을 확보하지 못했습니다."""
+            모든 주제에서 score 0.3 이상 기사 5개 이상을 확보하지 못했습니다."""
 
             send_discord_webhook(discord_message)
             raise ValueError(error_msg)
