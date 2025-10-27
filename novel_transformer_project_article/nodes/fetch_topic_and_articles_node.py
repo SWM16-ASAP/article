@@ -41,6 +41,10 @@ class TopicSelection(BaseModel):
 class ArticleExtraction(BaseModel):
     content: str = Field(description="Article main content")
 
+# Pydantic 모델: LLM이 생성한 주제 요약
+class TopicSummary(BaseModel):
+    summary: str = Field(description="200-character summary of the topic article")
+
 
 def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") -> List[Dict[str, str]]:
     """Google News RSS로 최신 뉴스 헤드라인 수집"""
@@ -49,11 +53,11 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
     RSS_URLS = {
         "Sports": {
             "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
-            "JA": "https://www.japantimes.co.jp/sports/feed/"
+            "JA": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
         },
         "Science": {
-            "KO": "https://scitechdaily.com/feed/",
-            "JA": "https://scitechdaily.com/feed/"
+            "KO": "https://www.sciencenews.org/feed",
+            "JA": "https://www.sciencenews.org/feed"
         },
         "Business": {
             "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
@@ -176,13 +180,13 @@ def _get_recent_article_headlines(state: BookState) -> List[str]:
         return []  # 에러 시 빈 제목 리스트
 
 
-def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[str]:
-    """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정"""
+def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headlines: List[str], state: BookState) -> List[SelectedTopic]:
+    """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정 (title과 url 포함)"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
     # 헤드라인 텍스트 생성
     headlines_text = "\n".join([
-        f"{i+1}. {h['title']} - {h['description'][:100] if h['description'] else ''}"
+        f"{i+1}. {h['title']} - {h['url']}"
         for i, h in enumerate(headlines[:30])
     ])
 
@@ -250,17 +254,35 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
     for i, topic in enumerate(response.topics, 1):
         logger.info(f"  {i}. {topic}")
 
+    # LLM이 반환한 URL이 잘렸을 수 있으므로 headlines에서 전체 URL 찾아서 업데이트
+    for topic in response.topics:
+        if not topic.url:
+            logger.warning(f"주제 '{topic.title}'의 URL이 비어있음 - 건너뜀")
+            continue
+
+        # headlines에서 topic.url을 포함하고 있는 항목 찾기
+        for headline in headlines:
+            headline_url = headline.get("url", "")
+            if topic.url in headline_url:
+                if topic.url != headline_url:
+                    logger.info(f"주제 '{topic.title}'의 URL 업데이트:")
+                    logger.info(f"  LLM 반환 (잘린 URL): {topic.url}")
+                    logger.info(f"  전체 URL: {headline_url}")
+                    topic.url = headline_url
+                break
+
     return response.topics
 
 
-def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: float = 0.5) -> List[Dict[str, str]]:
+def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: int = 20, min_score: float = 0.3) -> List[Dict[str, str]]:
     """
     Tavily로 주제 관련 기사 링크 및 raw_content 수집
 
     Args:
         topic: 검색할 주제
+        category: 카테고리 (Science, Technology 등) - tavily 설정 조정용
         max_results: 최대 검색 결과 수 (기본값: 20)
-        min_score: 최소 점수 (기본값: 0.5, 이 점수 이상인 결과만 반환)
+        min_score: 최소 점수 (기본값: 0.3, 이 점수 이상인 결과만 반환)
 
     Returns:
         score가 min_score 이상인 기사 정보 리스트 (score 내림차순 정렬)
@@ -272,25 +294,35 @@ def _fetch_articles_with_tavily(topic: str, max_results: int = 20, min_score: fl
 
     tavily = TavilyClient(api_key=tavily_key)
 
-    logger.info(f"Tavily로 '{topic}' 관련 기사 {max_results}개 검색 중 (최소 점수: {min_score})...")
+    logger.info(f"Tavily로 '{topic}' 관련 기사 {max_results}개 검색 중 (카테고리: {category}, 최소 점수: {min_score})...")
 
-    # 날짜 계산: 오늘 날짜와 일주일 전 날짜
-    today = datetime.now()
-    week_ago = today - timedelta(days=7)
-    start_date = week_ago.strftime("%Y-%m-%d")
-    end_date = today.strftime("%Y-%m-%d")
+    # 검색 파라미터 기본 설정
+    search_params = {
+        "query": topic,
+        "max_results": max_results,
+        "include_raw_content": "markdown",
+        "exclude_domains": ["youtube.com","x.com","instagram.com","facebook.com"]
+    }
 
-    logger.info(f"검색 기간: {start_date} ~ {end_date}")
+    # Science, Technology는 topic="news" 설정
+    if category in ["Science", "Technology"]:
+        search_params["topic"] = "news"
+        logger.info(f"카테고리 {category}: topic='news' 설정")
+
+    # Science가 아닌 경우에만 날짜 제한 추가
+    if category != "Science":
+        today = datetime.now()
+        week_ago = today - timedelta(days=7)
+        start_date = week_ago.strftime("%Y-%m-%d")
+        end_date = today.strftime("%Y-%m-%d")
+        search_params["start_date"] = start_date
+        search_params["end_date"] = end_date
+        logger.info(f"검색 기간: {start_date} ~ {end_date}")
+    else:
+        logger.info(f"카테고리 Science: 날짜 제한 없음")
 
     try:
-        response = tavily.search(
-            query=topic,
-            max_results=max_results,
-            start_date=start_date,
-            end_date=end_date,
-            include_raw_content="markdown",
-            exclude_domains=["youtube.com","x.com","instagram.com","facebook.com"]
-        )
+        response = tavily.search(**search_params)
 
         articles = response.get("results", [])
 
@@ -624,6 +656,135 @@ def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_coun
     return combined_text.strip()
 
 
+def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = None) -> str:
+    """
+    Diffbot으로 주제 기사의 본문을 추출하고 LLM으로 200자 요약
+
+    Args:
+        topic_url: 요약할 주제 기사의 URL
+        state: BookState (토큰 추적용)
+
+    Returns:
+        200자 이내의 요약 텍스트
+
+    Raises:
+        ValueError: Diffbot 파싱 실패 또는 요약 생성 실패
+    """
+    logger.info(f"주제 URL 요약 시작: {topic_url}")
+
+    # 1. Diffbot으로 기사 본문 추출
+    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
+    if not diffbot_token:
+        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
+
+    try:
+        logger.info("Diffbot으로 주제 기사 본문 추출 중...")
+        api_url = "https://api.diffbot.com/v3/article"
+        headers = {"accept": "application/json"}
+        params = {'url': topic_url, 'token': diffbot_token}
+
+        response = requests.get(api_url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if not data.get('objects') or len(data['objects']) == 0:
+            raise ValueError("Diffbot 응답에 objects가 없습니다.")
+
+        diffbot_article = data['objects'][0]
+        text = diffbot_article.get('text', '').strip()
+
+        if len(text) < 400 :
+            return text
+
+        logger.info(f"Diffbot 본문 추출 완료 - 본문 길이: {len(text)}자")
+
+    except Exception as e:
+        logger.error(f"Diffbot으로 주제 기사 추출 실패: {e}")
+        raise ValueError(f"Diffbot 파싱 실패: {str(e)}")
+
+    # 2. LLM으로 200자 요약 (최대 3번 재시도)
+    config = {
+        "model": "us.meta.llama4-scout-17b-instruct-v1:0",
+        "temperature": 0.3,
+        "max_tokens": 500
+    }
+    llm = setup_bedrock(config=config)
+    llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
+
+    base_parser = PydanticOutputParser(pydantic_object=TopicSummary)
+    fixing_parser = OutputFixingParser.from_llm(
+        parser=base_parser,
+        llm=llm,
+        max_retries=1
+    )
+
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", """너는 뉴스 기사 요약 전문가야.
+
+        사용자가 기사 제목과 본문을 주면, 핵심 내용을 200자 이내로 요약해서 제공해.
+
+        요약 규칙:
+        1. 반드시 200자 이내로 작성 (공백 포함)
+        2. 핵심 사실과 내용만 간결하게
+        3. 불필요한 수식어 제거
+        4. 육하원칙 위주로 작성
+
+        구조는 아래와 같이 줘야 해:
+        {format_instructions}"""),
+        ("human", """본문: {text}
+
+        위 기사를 200자 이내로 요약해줘.""")
+    ]).partial(format_instructions=base_parser.get_format_instructions())
+
+    chain = prompt | llm
+
+    max_retries = 3
+    current_text = text[:5000] if len(text) > 5000 else text  # 초기 텍스트
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"LLM 요약 시도 {attempt}/{max_retries}... (입력 텍스트 길이: {len(current_text)}자)")
+
+            raw_response = chain.invoke({"text": current_text})
+
+            try:
+                result = base_parser.parse(raw_response.content)
+            except OutputParserException as e:
+                logger.info(f"파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
+                result = fixing_parser.parse(raw_response.content)
+                logger.info("OutputFixingParser를 통한 파싱 복구 성공")
+
+            summary = result.summary.strip()
+            summary_length = len(summary)
+
+            logger.info(f"요약 생성 완료 - 길이: {summary_length}자")
+            logger.info(f"요약 내용: {summary[:100]}...")
+
+            # 200자 이내면 성공
+            if summary_length <= 400:
+                logger.info(f"✅ 400자 이내 요약 생성 성공 ({summary_length}자)")
+                return summary
+
+            # 400자 초과면 재시도
+            else:
+                logger.warning(f"요약이 400자를 초과함 ({summary_length}자) - 재시도")
+                # 요약이 기존 텍스트보다 짧으면 이걸로 재시도
+                if summary_length < len(current_text):
+                    logger.info(f"요약된 텍스트({summary_length}자)를 입력으로 재요약 시도")
+                    current_text = summary
+                continue
+
+        except Exception as e:
+            logger.warning(f"LLM 요약 시도 {attempt} 실패: {str(e)[:100]}")
+            if attempt == max_retries:
+                raise ValueError(f"LLM 요약 생성 실패 (최대 재시도 횟수 초과): {str(e)}")
+            continue
+
+    # 모든 재시도 실패
+    raise ValueError("200자 이내 요약 생성에 실패했습니다 (최대 재시도 횟수 초과)")
+
+
 def _parse_articles_with_newspaper(article_urls: List[str], target_count: int = 3, state: BookState = None) -> str:
     """
     newspaper3k를 사용하여 기사 URL에서 제목과 본문 파싱
@@ -801,8 +962,17 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
             logger.info(f"주제 후보 {i}/{len(topic_candidates)} 시도 중: {topic}")
 
             try:
+                # 주제 URL을 200자 요약으로 변환 (tavily query로 사용)
+                tavily_query = _summarize_topic_with_diffbot_and_llm(topic.url, state)
+                logger.info(f"Tavily 검색 쿼리 (요약): {tavily_query}")
+
                 # Tavily로 관련 기사 데이터 수집 (URL + raw_content)
-                article_data = _fetch_articles_with_tavily(topic.title, max_results=20, min_score=0.5)
+                article_data = _fetch_articles_with_tavily(
+                    topic=tavily_query,
+                    category=category,
+                    max_results=20,
+                    min_score=0.3
+                )
 
                 # score 0.5 이상인 기사가 5개 이상인지 확인
                 if len(article_data) >= 3:
