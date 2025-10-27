@@ -49,7 +49,7 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
     RSS_URLS = {
         "Sports": {
             "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
-            "JA": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
+            "JA": "https://www.japantimes.co.jp/sports/feed/"
         },
         "Science": {
             "KO": "https://scitechdaily.com/feed/",
