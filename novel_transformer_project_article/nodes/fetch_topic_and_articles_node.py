@@ -975,7 +975,7 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
                 )
 
                 # score 0.5 이상인 기사가 5개 이상인지 확인
-                if len(article_data) >= 3:
+                if len(article_data) >= 2:
                     logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
                     selected_topic = topic
                     selected_topic_url = topic.url
