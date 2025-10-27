@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
+from langchain_core.prompts import ChatPromptTemplate
 from lingua import Language, LanguageDetectorBuilder
 
 from ..state import BookState
@@ -52,81 +53,156 @@ ARTICLE_MODEL_ID = "us.meta.llama4-maverick-17b-instruct-v1:0"
 
 # 기사 생성 결과를 위한 Pydantic 모델
 class ArticleGeneration(BaseModel):
-    title: str = Field(max_length=80, description="headline for the article")
-    content: str = Field(max_length=1500, description="The main content of the article, under 1500 characters")
+    title: str = Field(description="headline for the article")
+    content: str = Field(description="The main content of the article, under 1500 characters")
     # min_length 제거: 파싱 후 수동으로 길이 검증하여 OutputFixingParser로의 즉시 전달 방지
 
+# 길이 조정용 Pydantic 모델 (content만 반환)
+class TextContent(BaseModel):
+    content: str = Field(description="The adjusted text content")
 
-def _expand_short_article(
-    short_content: str,
-    title: str,
-    topic_content: str,
-    state: BookState,
-    target_length: int = MIN_ARTICLE_LENGTH
-) -> str:
-    """짧은 기사 내용을 확장하여 최소 길이 요구사항을 충족시킵니다."""
-    logger.info(f"기사 내용이 너무 짧습니다 ({len(short_content)}자). 확장 시도 중...")
+def validate_length(article: ArticleGeneration, state: BookState, max_attempts: int = 3) -> ArticleGeneration:
+    """
+    기사의 제목과 내용의 길이를 검증 및 확장, 요약을 합니다.
+    조건을 만족하지 못할 경우 최대 max_attempts번까지 재시도합니다.
 
-    llm = None
+    검증 종류
+    1. title이 long
+    2. content가 short
+    3. content가 long
 
-    # Langfuse에서 프롬프트 가져오기 시도
-    if is_langfuse_enabled():
-        try:
-            client = get_langfuse_client()
-            label = get_prompt_label()
-            langfuse_prompt = client.get_prompt("expand-article", label=label)
+    타이틀 기준
+    - 요구 : 60자 이내
+    - 허용 범위 : 80자 이내
 
-            model_config = get_model_config_from_prompt(langfuse_prompt)
-            llm = setup_bedrock(config=model_config)
+    내용 기준
+    - 요구 : 1000 - 1500자
+    - 허용 : 900 - 1600자
 
-            logger.info(f"Loaded 'expand-article' from Langfuse (label: {label}, version: {langfuse_prompt.version})")
-            prompt = convert_langfuse_to_langchain(langfuse_prompt)
-        except Exception as e:
-            logger.warning(f"Failed to load prompt from Langfuse, falling back to local: {e}")
-            prompt = get_article_expansion_prompt()
-    else:
-        prompt = get_article_expansion_prompt()
+    Args:
+        article: 검증할 기사 객체
+        state: 워크플로우 상태
+        max_attempts: 최대 재시도 횟수 (기본값: 3)
 
-    if llm is None:
-        config = {
-            "model": ARTICLE_MODEL_ID,
-            "temperature": 0.4
-        }
-        llm = setup_bedrock(config=config)
-
+    Returns:
+        길이가 조정된 기사 객체 (실패 시에도 반환)
+    """
+    # LLM 설정 (공통)
+    config = {
+        "model": ARTICLE_MODEL_ID,
+        "temperature": 0.3,
+        "max_tokens": 2000
+    }
+    llm = setup_bedrock(config=config)
     llm = BedrockTokenTrackingWrapper(llm, state, auto_clean_json=True)
 
-    base_parser = PydanticOutputParser(pydantic_object=ArticleGeneration)
+    # 파서 설정
+    base_parser = PydanticOutputParser(pydantic_object=TextContent)
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
         llm=llm,
         max_retries=1
     )
 
-    chain = prompt | llm
+    # 공통 프롬프트
+    summarize_prompt = ChatPromptTemplate.from_messages([
+        ("system", """
+        You are a professional editor. Condense the following text to approximately {target_length} characters while preserving the core message.
 
-    raw_response = chain.invoke({
-        "current_length": len(short_content),
-        "target_length": target_length,
-        "max_length": MAX_ARTICLE_LENGTH,
-        "title": title,
-        "topic_content": topic_content,
-        "short_content": short_content,
-        "format_instructions": base_parser.get_format_instructions()
-    })
+        {format_instructions}"""),
+        ("human", "Text ({current_length} characters):\n{text}\n\nCondense to approximately {target_length} characters. \n\n Don't condense text too short!!")
+    ]).partial(format_instructions=base_parser.get_format_instructions())
 
-    try:
-        # 1차 시도: 기본 파서
-        response = base_parser.parse(raw_response.content)
-    except OutputParserException as parse_error:
-        logger.info(f"확장된 기사 파싱 실패, OutputFixingParser로 복구 시도: {str(parse_error)[:50]}...")
-        # 2차 시도: OutputFixingParser로 자동 복구
-        response = fixing_parser.parse(raw_response.content)
-        logger.info("확장된 기사 OutputFixingParser를 통한 파싱 복구 성공")
+    expand_prompt = ChatPromptTemplate.from_messages([
+        ("system", """
+        You are a professional writer. Expand the following text to approximately {target_length} characters by adding more details, context, and information.
 
-    expanded_content = response.content
-    logger.info(f"기사 확장 완료: {len(short_content)}자 -> {len(expanded_content)}자")
-    return expanded_content
+        Use the background knowledge below to add relevant details:
+
+        Background Knowledge:
+        {background_knowledge}
+
+        {format_instructions}"""),
+        ("human", "Text ({current_length} characters):\n{text}\n\nExpand to approximately {target_length} characters.")
+    ]).partial(format_instructions=base_parser.get_format_instructions())
+
+    def adjust_text(text: str, target_length: int, is_expand: bool, is_title: bool = False) -> str:
+        """텍스트를 요약 또는 확장합니다."""
+        action = "확장" if is_expand else "요약"
+        text_type = "제목" if is_title else "내용"
+
+        # 프롬프트 선택
+        prompt = expand_prompt if is_expand else summarize_prompt
+        chain = prompt | llm
+
+        # 파라미터 설정
+        invoke_params = {
+            "current_length": len(text),
+            "target_length": target_length,
+            "text": text
+        }
+
+        # 확장이면서 제목이 아닌 경우에만 배경 지식 추가
+        if is_expand and not is_title:
+            invoke_params["background_knowledge"] = state.get("full_text", "")
+
+        # LLM 호출
+        raw_response = chain.invoke(invoke_params)
+
+        # 파싱
+        try:
+            response = base_parser.parse(raw_response.content)
+        except OutputParserException as e:
+            logger.info(f"{text_type} {action} 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
+            response = fixing_parser.parse(raw_response.content)
+            logger.info("OutputFixingParser를 통한 파싱 복구 성공")
+
+        return response.content.strip()
+
+    # 1. 제목 길이 검증 및 조정 (재시도 로직)
+    for attempt in range(1, max_attempts + 1):
+        if len(article.title) <= 80:
+            break  # 조건 만족
+
+        original_length = len(article.title)
+        logger.info(f"제목 길이 조정 시도 {attempt}/{max_attempts}: {original_length}자 -> 60자 목표")
+
+        article.title = adjust_text(article.title, 60, is_expand=False, is_title=True)
+        logger.info(f"제목 요약 완료: {original_length}자 -> {len(article.title)}자")
+
+        # 마지막 시도에서도 조건 불만족 시 경고만 출력
+        if attempt == max_attempts and len(article.title) > 80:
+            logger.warning(f"제목 길이 조정 실패: {max_attempts}번 시도 후에도 80자 초과 ({len(article.title)}자), 그대로 진행합니다")
+
+    # 2. 내용 길이 검증 및 조정 (재시도 로직)
+    for attempt in range(1, max_attempts + 1):
+        content_length = len(article.content)
+
+        # 조건 만족 확인
+        if 900 <= content_length <= 1600:
+            logger.info(f"내용 길이 조건 만족: {content_length}자")
+            break
+
+        # 너무 짧은 경우 확장
+        if content_length < 900:
+            logger.info(f"내용 확장 시도 {attempt}/{max_attempts}: {content_length}자 -> 1200자 목표")
+            article.content = adjust_text(article.content, 1200, is_expand=True, is_title=False)
+            logger.info(f"내용 확장 완료: {content_length}자 -> {len(article.content)}자")
+
+        # 너무 긴 경우 요약
+        elif content_length > 1600:
+            logger.info(f"내용 요약 시도 {attempt}/{max_attempts}: {content_length}자 -> 1200자 목표")
+            article.content = adjust_text(article.content, 1200, is_expand=False, is_title=False)
+            logger.info(f"내용 요약 완료: {content_length}자 -> {len(article.content)}자")
+
+        # 마지막 시도에서도 조건 불만족 시 경고만 출력
+        if attempt == max_attempts:
+            final_length = len(article.content)
+            if final_length < 900 or final_length > 1600:
+                logger.warning(f"내용 길이 조정 실패: {max_attempts}번 시도 후에도 범위 벗어남 ({final_length}자, 허용: 900-1600자), 그대로 진행합니다")
+
+    return article
+
 
 
 def generate_article(state: BookState) -> BookState:
@@ -247,32 +323,13 @@ def generate_article(state: BookState) -> BookState:
                     logger.info(f"Attempt {attempt+1}: Title and content validation passed (non-empty and English)")
 
                     # 6. 수동 길이 검증 및 확장 로직
-                    article_content = response.content.strip()
-                    if len(article_content) < MIN_ARTICLE_LENGTH:
-                        logger.warning(f"기사 내용이 최소 길이({MIN_ARTICLE_LENGTH}자)보다 짧습니다 ({len(article_content)}자). 확장 시도 중...")
-                        article_content = _expand_short_article(
-                            short_content=article_content,
-                            title=response.title,
-                            topic_content=state["full_text"],
-                            state=state,
-                            target_length=MIN_ARTICLE_LENGTH
-                        )
-                        
-                        # 확장 후에도 여전히 짧으면
-                        if len(article_content) < MIN_ARTICLE_LENGTH:
-                            # 마지막 시도가 아니면 재시도
-                            if attempt < max_retries - 1:
-                                logger.warning(f"확장 후에도 최소 길이 미달 ({len(article_content)}자). 재시도합니다 (시도 {attempt+1}/{max_retries})")
-                                continue
-                            # 마지막 시도였으면 경고만 하고 그대로 사용
-                            else:
-                                logger.warning(f"기사 생성 경고: {max_retries}회 재시도 및 확장 후에도 최소 길이 미달 ({len(article_content)}자 < {MIN_ARTICLE_LENGTH}자), 그대로 진행합니다")
+                    response = validate_length(response, state)
                     
                     # 7. 파싱 및 검증된 결과를 state에 적용
                     state["title"] = response.title
-                    state["chapters"] = [article_content]
+                    state["chapters"] = [response.content]
                     
-                    logger.debug(f"기사 생성 완료: {response.title} (시도 {attempt+1}회, 최종 길이: {len(article_content)}자)")
+                    logger.debug(f"기사 생성 완료: {response.title} (시도 {attempt+1}회, 최종 길이: {len(response.content)}자)")
                     break  # 성공했으므로 재시도 루프 탈출
                     
                 except OutputParserException as e:
@@ -291,7 +348,6 @@ def generate_article(state: BookState) -> BookState:
                         raise ValueError(error_msg) from e
                     continue
 
-            # update_usage_metrics(state, model_id, total_input_tokens, total_output_tokens)
             logger.info("=== 뉴스 기사 생성 완료 ===")
             return state
     finally:
