@@ -28,8 +28,8 @@ jobs:
             language: JA
           - category: Technology
             language: null
-          # - category: Science
-          #   language: null
+          - category: Science
+            language: null
 
     steps:
       - name: Checkout code
@@ -214,15 +214,6 @@ jobs:
   #             print(f"❌ Error calling API: {str(e)}")
   #             sys.exit(1)
   #         EOF
-
-      - name: Notify Discord on success
-        if: success()
-        env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        run: |
-          curl -H "Content-Type: application/json" \
-               -d '{"content":"✅ All article automation jobs completed and notified backend!"}' \
-               $DISCORD_WEBHOOK_URL
 
       - name: Notify Discord on failure
         if: failure()
