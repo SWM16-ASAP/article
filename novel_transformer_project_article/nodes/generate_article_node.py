@@ -339,6 +339,9 @@ def generate_article(state: BookState) -> BookState:
                         raise ValueError(error_msg) from e
                     continue
 
+            if state["target_language_code"] is not None and state["tags"][0] != "Culture" :
+                state["target_language_code"] = None
+
             logger.info("=== 뉴스 기사 생성 완료 ===")
             return state
     finally:
