@@ -40,7 +40,7 @@ LEVEL_TEMPERATURES = {
 }
 
 # Initialize lingua detector once at module level for efficiency
-_detector = LanguageDetectorBuilder.from_languages(Language.ENGLISH, Language.KOREAN, Language.SPANISH, Language.FRENCH, Language.GERMAN, Language.ITALIAN, Language.PORTUGUESE, Language.RUSSIAN, Language.CHINESE, Language.JAPANESE).build()
+_detector = LanguageDetectorBuilder.from_languages(Language.ENGLISH, Language.KOREAN, Language.JAPANESE).build()
 
 def is_english_text(text: str) -> bool:
     """Checks if the given text is in English using lingua."""

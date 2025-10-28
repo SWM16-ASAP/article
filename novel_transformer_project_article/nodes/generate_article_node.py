@@ -17,21 +17,12 @@ from ..utils.langfuse_client import (
     get_model_config_from_prompt
 )
 from ..prompts.generate_article_prompt import get_article_generation_prompt
-from ..prompts.expand_article_prompt import get_article_expansion_prompt
-
 logger = get_logger(__name__)
 
 # Initialize lingua detector once at module level for efficiency
 _detector = LanguageDetectorBuilder.from_languages(
     Language.ENGLISH,
     Language.KOREAN,
-    Language.SPANISH,
-    Language.FRENCH,
-    Language.GERMAN,
-    Language.ITALIAN,
-    Language.PORTUGUESE,
-    Language.RUSSIAN,
-    Language.CHINESE,
     Language.JAPANESE
 ).build()
 
