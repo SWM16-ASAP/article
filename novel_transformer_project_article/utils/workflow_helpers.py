@@ -1,5 +1,4 @@
 import os
-import pprint
 import re
 import requests
 from typing import TYPE_CHECKING, Optional
@@ -143,7 +142,11 @@ class BedrockTokenTrackingWrapper(Runnable):
             if not self.model_name or self.last_input_tokens == 0 or self.last_output_tokens == 0:
                 logger.warning(f"토큰 정보 일부 누락 - model: {self.model_name}, input: {self.last_input_tokens}, output: {self.last_output_tokens}")
                 send_failure_notification(self.state, f"토큰 정보 일부 누락 - model: {self.model_name}, input: {self.last_input_tokens}, output: {self.last_output_tokens}")
-        else:
+        
+        elif hasattr(response, 'response_metadata') and response.response_metadata:
+            stop_reason = response.response_metadata.get("stop_reason", "")
+            send_failure_notification(self.state, f"llm 응답 멈춤 : {stop_reason}", False)
+        else :
             logger.error(f"usage_metadata 없음: {response}")
             send_failure_notification(self.state, f"usage_metadata 없음: {response}")
 
@@ -241,7 +244,7 @@ def setup_bedrock(
         )
 
 
-def send_failure_notification(state: BookState, error_message: str):
+def send_failure_notification(state: BookState, error_message: str, is_error: bool = True):
     """
     워크플로우 실패 알림을 백엔드 API로 전송합니다.
     FAIL_API_URL와 LINGLEVEL_API_KEY 환경 변수를 사용합니다.
@@ -252,17 +255,34 @@ def send_failure_notification(state: BookState, error_message: str):
     language = state.get("target_language_code")
     full_text = state.get("full_text")
     tag = state.get("tags")
-        
-    discord_message = f"""🚨 **워크플로우 실패 알림** 🚨
-        
-    **제목**: {title}
-    **콘텐츠 타입**: {content_type}
-    **언어**: {language}
-    **전문**: {full_text}
-    **태그**:{tag}
-    **오류 메시지**: {str(error_message)[:500]}...
 
-    운영 환경에서 워크플로우 실행 중 오류가 발생했습니다."""
+    discord_message = ""
+
+    if is_error: 
+        
+        discord_message = f"""🚨 **워크플로우 실패 알림** 🚨
+            
+        **제목**: {title}
+        **콘텐츠 타입**: {content_type}
+        **언어**: {language}
+        **전문**: {full_text}
+        **태그**:{tag}
+        **오류 메시지**: {str(error_message)[:500]}...
+
+        운영 환경에서 워크플로우 실행 중 오류가 발생했습니다."""
+
+    else : 
+
+        discord_message = f"""⚠️ **워크플로우 경고 알림** ⚠️
+            
+        **제목**: {title}
+        **콘텐츠 타입**: {content_type}
+        **언어**: {language}
+        **전문**: {full_text}
+        **태그**:{tag}
+        **오류 메시지**: {str(error_message)[:500]}...
+
+        운영 환경에서 워크플로우 실행 중 오류가 발생했습니다."""
         
     send_discord_webhook(discord_message)
 
