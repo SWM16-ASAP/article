@@ -2,6 +2,7 @@
 Google News RSS로 트렌드 수집 → LLM으로 주제 선정 → Tavily로 기사 수집하는 노드
 """
 import os
+import json
 import requests
 from re import T
 from typing import List, Dict
@@ -31,12 +32,14 @@ from ..prompts.outputFixingParser_prompt import get_output_fixing_prompt
 logger = get_logger(__name__)
 
 # Pydantic 모델: LLM이 선정한 주제들
-class SelectedTopic(BaseModel):
-    title: str = Field(description="Selected topic title")
-    url: str = Field(description="Selected topic url")
 
 class TopicSelection(BaseModel):
-    topics: List[SelectedTopic] = Field(description="List of 3 topic candidates in order of relevance and interest (most relevant first)")
+    topics: List[str] = Field(description="List of 3 topic titles only in order of relevance and interest (most relevant first)")
+
+# Pydantic 모델: 선정된 주제 (제목 + URL)
+class SelectedTopic(BaseModel):
+    title: str = Field(description="Topic title")
+    url: str = Field(description="Topic URL")
 
 # Pydantic 모델: LLM이 추출한 기사 정보
 class ArticleExtraction(BaseModel):
@@ -187,7 +190,7 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
 
     # 헤드라인 텍스트 생성
     headlines_text = "\n".join([
-        f"{i+1}. {h['title']} - {h['url']}"
+        f"{i+1}. {h['title']}"
         for i, h in enumerate(headlines[:30])
     ])
 
@@ -257,27 +260,29 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
-    for i, topic in enumerate(response.topics, 1):
-        logger.info(f"  {i}. {topic}")
+    for i, topic_title in enumerate(response.topics, 1):
+        logger.info(f"  {i}. {topic_title}")
 
-    # LLM이 반환한 URL이 잘렸을 수 있으므로 headlines에서 전체 URL 찾아서 업데이트
-    for topic in response.topics:
-        if not topic.url:
-            logger.warning(f"주제 '{topic.title}'의 URL이 비어있음 - 건너뜀")
-            continue
+    # LLM이 반환한 제목을 기반으로 headlines에서 URL 찾기
+    selected_topics = []
+    for topic_title in response.topics:
+        matched_url = None
 
-        # headlines에서 topic.url을 포함하고 있는 항목 찾기
+        # headlines에서 topic_title이 포함된 항목 찾기
         for headline in headlines:
-            headline_url = headline.get("url", "")
-            if topic.url in headline_url:
-                if topic.url != headline_url:
-                    logger.info(f"주제 '{topic.title}'의 URL 업데이트:")
-                    logger.info(f"  LLM 반환 (잘린 URL): {topic.url}")
-                    logger.info(f"  전체 URL: {headline_url}")
-                    topic.url = headline_url
+            headline_title = headline.get("title", "")
+            if topic_title in headline_title or headline_title in topic_title:
+                matched_url = headline.get("url", "")
+                logger.info(f"주제 '{topic_title}'의 URL 매칭 완료: {matched_url}")
                 break
 
-    return response.topics
+        if not matched_url:
+            logger.warning(f"주제 '{topic_title}'의 URL을 headlines에서 찾지 못함 - 건너뜀")
+            continue
+
+        selected_topics.append(SelectedTopic(title=topic_title, url=matched_url))
+
+    return selected_topics
 
 
 def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: int = 20, min_score: float = 0.3) -> List[Dict[str, str]]:
@@ -960,6 +965,8 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
 
         # 2. LLM으로 주제 3개 선정 (중요도 순)
         topic_candidates = _select_topic_with_llm(headlines, recent_article_headlines, state)
+
+        logger.info(f"topic_candidates:\n{json.dumps([t.model_dump() for t in topic_candidates], indent=2, ensure_ascii=False)}")
 
         # 3. 각 주제에 대해 순차적으로 시도
         # selected_topic = None
