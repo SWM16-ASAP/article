@@ -739,9 +739,10 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
 
         요약 규칙:
         1. 반드시 200자 이내로 작성 (공백 포함)
-        2. 핵심 사실과 내용만 간결하게
-        3. 불필요한 수식어 제거
-        4. 육하원칙 위주로 작성
+        2. 본문의 언어로 요약 (English 본문 -> English 요약, 日本語 본문 -> 日本語 본문, 한국어 본문 -> 한국어 요약)
+        3. 핵심 사실과 내용만 간결하게
+        4. 불필요한 수식어 제거
+        5. 육하원칙 위주로 작성
 
         구조는 아래와 같이 줘야 해:
         {format_instructions}"""),
