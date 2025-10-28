@@ -25,6 +25,7 @@ from ..utils.langfuse_client import (
     get_model_config_from_prompt
 )
 from ..prompts.select_topic_with_llm_prompt import get_select_topic_prompt
+from ..prompts.outputFixingParser_prompt import get_output_fixing_prompt
 
 
 logger = get_logger(__name__)
@@ -214,7 +215,8 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
     if llm is None:
         config = {
             "model": "us.meta.llama4-scout-17b-instruct-v1:0",
-            "temperature": 0.3
+            "temperature": 0.3, 
+            "max_tokens": 2000
         }
         llm = setup_bedrock(config=config)
 
@@ -226,6 +228,7 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
         llm=llm,  # clean_json_markdown을 자동으로 적용하는 LLM 사용
+        prompt=get_output_fixing_prompt(),
         max_retries=3
     )
 
@@ -243,11 +246,14 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
             "category": state.get("tags")[0]
         })
 
+    broken_content = raw_response.content.replace('{', '{{BROKEN')
+    
     try:
-        response = base_parser.parse(raw_response.content)
+        # 테스트로 fixingparser로 바로 파싱
+        response = base_parser.parse(broken_content)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(raw_response.content)
+        response = fixing_parser.parse(broken_content)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
@@ -413,6 +419,7 @@ def _parse_articles_with_llm(article_data: List[Dict[str, str]], target_count: i
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
         llm=llm,
+        prompt=get_output_fixing_prompt(),
         max_retries=1
     )
 
@@ -716,6 +723,7 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
     fixing_parser = OutputFixingParser.from_llm(
         parser=base_parser,
         llm=llm,
+        prompt=get_output_fixing_prompt(),
         max_retries=1
     )
 
@@ -954,77 +962,77 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
         topic_candidates = _select_topic_with_llm(headlines, recent_article_headlines, state)
 
         # 3. 각 주제에 대해 순차적으로 시도
-        selected_topic = None
-        selected_topic_url = None
-        article_data = None
+        # selected_topic = None
+        # selected_topic_url = None
+        # article_data = None
 
-        for i, topic in enumerate(topic_candidates, 1):
-            logger.info(f"주제 후보 {i}/{len(topic_candidates)} 시도 중: {topic}")
+        # for i, topic in enumerate(topic_candidates, 1):
+        #     logger.info(f"주제 후보 {i}/{len(topic_candidates)} 시도 중: {topic}")
 
-            try:
-                # 주제 URL을 200자 요약으로 변환 (tavily query로 사용)
-                tavily_query = _summarize_topic_with_diffbot_and_llm(topic.url, state)
-                logger.info(f"Tavily 검색 쿼리 (요약): {tavily_query}")
+        #     try:
+        #         # 주제 URL을 200자 요약으로 변환 (tavily query로 사용)
+        #         tavily_query = _summarize_topic_with_diffbot_and_llm(topic.url, state)
+        #         logger.info(f"Tavily 검색 쿼리 (요약): {tavily_query}")
 
-                # Tavily로 관련 기사 데이터 수집 (URL + raw_content)
-                article_data = _fetch_articles_with_tavily(
-                    topic=tavily_query,
-                    category=category,
-                    max_results=20,
-                    min_score=0.3
-                )
+        #         # Tavily로 관련 기사 데이터 수집 (URL + raw_content)
+        #         article_data = _fetch_articles_with_tavily(
+        #             topic=tavily_query,
+        #             category=category,
+        #             max_results=20,
+        #             min_score=0.3
+        #         )
 
-                # score 0.5 이상인 기사가 5개 이상인지 확인
-                if len(article_data) >= 2:
-                    logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
-                    selected_topic = topic
-                    selected_topic_url = topic.url
-                    break
-                else:
-                    logger.warning(f"⚠️ 주제 '{topic.title}': {len(article_data)}개 기사만 확보 (5개 미만) - 다음 주제 시도")
-                    continue
+        #         # score 0.5 이상인 기사가 5개 이상인지 확인
+        #         if len(article_data) >= 2:
+        #             logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
+        #             selected_topic = topic
+        #             selected_topic_url = topic.url
+        #             break
+        #         else:
+        #             logger.warning(f"⚠️ 주제 '{topic.title}': {len(article_data)}개 기사만 확보 (5개 미만) - 다음 주제 시도")
+        #             continue
 
-            except Exception as e:
-                logger.warning(f"❌ 주제 '{topic.title}' 기사 수집 실패: {str(e)[:100]} - 다음 주제 시도")
-                continue
+        #     except Exception as e:
+        #         logger.warning(f"❌ 주제 '{topic.title}' 기사 수집 실패: {str(e)[:100]} - 다음 주제 시도")
+        #         continue
 
-        # 모든 주제에서 실패한 경우
-        if not selected_topic or not article_data:
-            error_msg = f"모든 주제 후보에서 충분한 기사를 찾지 못했습니다. 시도한 주제: {', '.join([t.title for t in topic_candidates[:3]])}"
-            logger.error(error_msg)
+        # # 모든 주제에서 실패한 경우
+        # if not selected_topic or not article_data:
+        #     error_msg = f"모든 주제 후보에서 충분한 기사를 찾지 못했습니다. 시도한 주제: {', '.join([t.title for t in topic_candidates[:3]])}"
+        #     logger.error(error_msg)
 
-            # 디스코드 알림
-            discord_message = f"""⚠️ **기사 수집 실패** ⚠️
+        #     # 디스코드 알림
+        #     discord_message = f"""⚠️ **기사 수집 실패** ⚠️
 
-            **Request ID**: {state.get('id', 'N/A')}
-            **카테고리**: {category}
-            **언어**: {language}
+        #     **Request ID**: {state.get('id', 'N/A')}
+        #     **카테고리**: {category}
+        #     **언어**: {language}
 
-            **시도한 주제 후보들**:
-            {chr(10).join([f"{i}. {topic.title}" for i, topic in enumerate(topic_candidates, 1)])}
+        #     **시도한 주제 후보들**:
+        #     {chr(10).join([f"{i}. {topic.title}" for i, topic in enumerate(topic_candidates, 1)])}
 
-            모든 주제에서 score 0.3 이상 기사 5개 이상을 확보하지 못했습니다."""
+        #     모든 주제에서 score 0.3 이상 기사 5개 이상을 확보하지 못했습니다."""
 
-            send_discord_webhook(discord_message)
-            raise ValueError(error_msg)
+        #     send_discord_webhook(discord_message)
+        #     raise ValueError(error_msg)
 
-        logger.info(f"최종 선정된 주제: {selected_topic.title}")
+        # logger.info(f"최종 선정된 주제: {selected_topic.title}")
 
-        # 4. LLM으로 기사 파싱 (최소 2개, 목표 3개)
-        articles_text = _parse_articles_with_diffbot(article_data, target_count=3, state=state)
+        # # 4. LLM으로 기사 파싱 (최소 2개, 목표 3개)
+        # articles_text = _parse_articles_with_diffbot(article_data, target_count=3, state=state)
 
-        # 4.5. 기사 텍스트를 10000자로 제한
-        if len(articles_text) > 10000:
-            articles_text = articles_text[:10000]
-            logger.info(f"기사 텍스트를 10000자로 제한함")
+        # # 4.5. 기사 텍스트를 10000자로 제한
+        # if len(articles_text) > 10000:
+        #     articles_text = articles_text[:10000]
+        #     logger.info(f"기사 텍스트를 10000자로 제한함")
 
-        # 5. state에 저장
-        state["full_text"] = articles_text
-        state["origin_url"] = selected_topic_url
+        # # 5. state에 저장
+        # state["full_text"] = articles_text
+        # state["origin_url"] = selected_topic_url
 
-        logger.info(f"=== 주제 선정 및 기사 수집 완료 ===")
-        logger.info(f"선정된 주제: {selected_topic.title}")
-        logger.info(f"수집된 기사 길이: {len(articles_text):,}자")
+        # logger.info(f"=== 주제 선정 및 기사 수집 완료 ===")
+        # logger.info(f"선정된 주제: {selected_topic.title}")
+        # logger.info(f"수집된 기사 길이: {len(articles_text):,}자")
 
         return state
 
