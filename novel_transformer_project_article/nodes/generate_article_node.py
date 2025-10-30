@@ -99,6 +99,7 @@ def validate_length(article: ArticleGeneration, state: BookState, max_attempts: 
     summarize_prompt = ChatPromptTemplate.from_messages([
         ("system", """
         You are a professional editor. Condense the following text to approximately {target_length} characters while preserving the core message.
+        You MUST return title and content in ENGLISH.
 
         {format_instructions}"""),
         ("human", "Text ({current_length} characters):\n{text}\n\nCondense to approximately {target_length} characters. \n\n Don't condense text too short!!")
@@ -107,6 +108,7 @@ def validate_length(article: ArticleGeneration, state: BookState, max_attempts: 
     expand_prompt = ChatPromptTemplate.from_messages([
         ("system", """
         You are a professional writer. Expand the following text to approximately {target_length} characters by adding more details, context, and information.
+        You MUST return title and content in ENGLISH.
 
         Use the background knowledge below to add relevant details:
 
@@ -150,6 +152,17 @@ def validate_length(article: ArticleGeneration, state: BookState, max_attempts: 
 
         return response.content.strip()
 
+    # 0. 제목, 내용 영어인지 검증
+    if not is_english_text(article.title):
+        error_msg = f"제목이 영어가 아닙니다: {article.title[:50]}..."
+        logger.warning(error_msg)
+        raise ValueError(error_msg)
+
+    if not is_english_text(article.content):
+        error_msg = "내용이 영어가 아닙니다"
+        logger.warning(error_msg)
+        raise ValueError(error_msg)
+
     # 1. 제목 길이 검증 및 조정 (재시도 로직)
     for attempt in range(1, max_attempts + 1):
         if len(article.title) <= 80:
@@ -160,6 +173,14 @@ def validate_length(article: ArticleGeneration, state: BookState, max_attempts: 
 
         article.title = adjust_text(article.title, 60, is_expand=False, is_title=True)
         logger.info(f"제목 요약 완료: {original_length}자 -> {len(article.title)}자")
+
+        # 제목 조정 후 영어인지 검증
+        if not is_english_text(article.title):
+            error_msg = f"제목 길이 조정 후 영어가 아님 (시도 {attempt}/{max_attempts}): {article.title[:50]}..."
+            logger.warning(error_msg)
+            if attempt == max_attempts:
+                raise ValueError(error_msg)
+            continue
 
         # 마지막 시도에서도 조건 불만족 시 경고만 출력
         if attempt == max_attempts and len(article.title) > 80:
@@ -180,11 +201,27 @@ def validate_length(article: ArticleGeneration, state: BookState, max_attempts: 
             article.content = adjust_text(article.content, 1200, is_expand=True, is_title=False)
             logger.info(f"내용 확장 완료: {content_length}자 -> {len(article.content)}자")
 
+            # 내용 조정 후 영어인지 검증
+            if not is_english_text(article.content):
+                error_msg = f"내용 확장 후 영어가 아님 (시도 {attempt}/{max_attempts})"
+                logger.warning(error_msg)
+                if attempt == max_attempts:
+                    raise ValueError(error_msg)
+                continue
+
         # 너무 긴 경우 요약
         elif content_length > 1600:
             logger.info(f"내용 요약 시도 {attempt}/{max_attempts}: {content_length}자 -> 1200자 목표")
             article.content = adjust_text(article.content, 1200, is_expand=False, is_title=False)
             logger.info(f"내용 요약 완료: {content_length}자 -> {len(article.content)}자")
+
+            # 내용 조정 후 영어인지 검증
+            if not is_english_text(article.content):
+                error_msg = f"내용 요약 후 영어가 아님 (시도 {attempt}/{max_attempts})"
+                logger.warning(error_msg)
+                if attempt == max_attempts:
+                    raise ValueError(error_msg)
+                continue
 
         # 마지막 시도에서도 조건 불만족 시 경고만 출력
         if attempt == max_attempts:
@@ -282,8 +319,8 @@ def generate_article(state: BookState) -> BookState:
                     content_stripped = response.content.strip()
 
                     # 빈 문자열 검사
-                    if not title_stripped:
-                        error_msg = f"Attempt {attempt+1}: Generated title is empty"
+                    if not title_stripped or title_stripped.lower().startswith("example"):
+                        error_msg = f"Attempt {attempt+1}: Generated title is empty or starts with 'example': {title_stripped[:50]}..."
                         logger.warning(error_msg)
                         if attempt == max_retries - 1:
                             raise ValueError(error_msg)
@@ -320,7 +357,7 @@ def generate_article(state: BookState) -> BookState:
                     state["title"] = response.title
                     state["chapters"] = [response.content]
                     
-                    logger.debug(f"기사 생성 완료: {response.title} (시도 {attempt+1}회, 최종 길이: {len(response.content)}자)")
+                    logger.info(f"기사 생성 완료: {response.title} (시도 {attempt+1}회, 최종 길이: {len(response.content)}자)")
                     break  # 성공했으므로 재시도 루프 탈출
                     
                 except OutputParserException as e:
