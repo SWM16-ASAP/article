@@ -320,18 +320,6 @@ def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: i
         search_params["topic"] = "news"
         logger.info(f"카테고리 {category}: topic='news' 설정")
 
-    # Science가 아닌 경우에만 날짜 제한 추가
-    if category != "Science":
-        today = datetime.now()
-        week_ago = today - timedelta(days=7)
-        start_date = week_ago.strftime("%Y-%m-%d")
-        end_date = today.strftime("%Y-%m-%d")
-        search_params["start_date"] = start_date
-        search_params["end_date"] = end_date
-        logger.info(f"검색 기간: {start_date} ~ {end_date}")
-    else:
-        logger.info(f"카테고리 Science: 날짜 제한 없음")
-
     try:
         response = tavily.search(**search_params)
 
