@@ -970,15 +970,19 @@ def fetch_topic_and_articles(state: BookState) -> BookState:
                 tavily_query = _summarize_topic_with_diffbot_and_llm(topic.url, state)
                 logger.info(f"Tavily 검색 쿼리 (요약): {tavily_query}")
 
+                tavily_min_score = 0.5
+                if state.get("tags")[0] == "Science" : 
+                    tavily_min_score = 0.3
+
                 # Tavily로 관련 기사 데이터 수집 (URL + raw_content)
                 article_data = _fetch_articles_with_tavily(
                     topic=tavily_query,
                     category=category,
                     max_results=20,
-                    min_score=0.3
+                    min_score=tavily_min_score
                 )
 
-                # score 0.5 이상인 기사가 5개 이상인지 확인
+                # score 0.5 이상인 기사가 2개 이상인지 확인
                 if len(article_data) >= 2:
                     logger.info(f"✅ 주제 '{topic.title}': {len(article_data)}개 기사 확보 - 사용 가능")
                     selected_topic = topic
