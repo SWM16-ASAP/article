@@ -249,15 +249,13 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
             "country": country,
             "category": state.get("tags")[0]
         })
-
-    broken_content = raw_response.content.replace('{', '{{BROKEN')
     
     try:
         # 테스트로 fixingparser로 바로 파싱
-        response = base_parser.parse(broken_content)
+        response = base_parser.parse(raw_response.content)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(broken_content)
+        response = fixing_parser.parse(raw_response.content)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
