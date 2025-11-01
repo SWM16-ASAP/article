@@ -11,6 +11,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 from tavily import TavilyClient
+from lingua import Language, LanguageDetectorBuilder
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
@@ -19,11 +20,42 @@ from ..prompts.outputFixingParser_prompt import get_output_fixing_prompt
 
 logger = get_logger(__name__)
 
+# Lingua 언어 감지기 초기화 (한국어, 일본어, 영어만 감지)
+_language_detector = LanguageDetectorBuilder.from_languages(
+    Language.KOREAN, Language.JAPANESE, Language.ENGLISH
+).build()
+
 # === Internal Models (이 파일 전용) ===
 
 class TopicSummary(BaseModel):
     """주제 요약 (Diffbot 파싱용)"""
     summary: str = Field(description="200-character summary of the topic article")
+
+
+def _detect_language(text: str) -> str:
+    """
+    Lingua를 사용하여 텍스트의 언어 감지
+
+    Args:
+        text: 언어를 감지할 텍스트
+
+    Returns:
+        언어명 문자열 ("Korean", "Japanese", "English")
+    """
+    # 텍스트가 너무 짧으면 샘플 확대
+    sample_text = text[:1000] if len(text) > 1000 else text
+
+    detected_language = _language_detector.detect_language_of(sample_text)
+
+    if detected_language == Language.KOREAN:
+        return "Korean"
+    elif detected_language == Language.JAPANESE:
+        return "Japanese"
+    elif detected_language == Language.ENGLISH:
+        return "English"
+    else:
+        # 기본값
+        return "English"
 
 
 def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = None) -> str:
@@ -77,6 +109,10 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
         logger.error(f"Diffbot으로 주제 기사 추출 실패: {e}")
         raise ValueError(f"Diffbot 파싱 실패: {str(e)}")
 
+    # 1.5. 언어 감지
+    detected_lang = _detect_language(text)
+    logger.info(f"감지된 언어: {detected_lang}")
+
     # 2. LLM으로 200자 요약 (최대 3번 재시도)
     config = {
         "model": "us.meta.llama4-scout-17b-instruct-v1:0",
@@ -94,24 +130,38 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
         max_retries=1
     )
 
+    # 언어별 프롬프트 매핑
+    language_instruction = {
+        "Korean": "Korean (한국어)",
+        "Japanese": "Japanese (日本語)",
+        "English": "English"
+    }
+
+    lang_name = language_instruction.get(detected_lang, "the same language as the article")
+
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """너는 뉴스 기사 요약 전문가야.
+        ("system", """You are a news article summarization expert.
 
-        사용자가 기사 제목과 본문을 주면, 핵심 내용을 200자 이내로 요약해서 제공해.
+        When given an article text, provide a summary of the key content within 200 characters.
 
-        요약 규칙:
-        1. 반드시 200자 이내로 작성 (공백 포함)
-        2. 본문의 언어로 요약 (English 본문 -> English 요약, 日本語 본문 -> 日本語 본문, 한국어 본문 -> 한국어 요약)
-        3. 핵심 사실과 내용만 간결하게
-        4. 불필요한 수식어 제거
-        5. 육하원칙 위주로 작성
+        **IMPORTANT: This article is written in {language}. You MUST summarize it in {language}.**
 
-        구조는 아래와 같이 줘야 해:
+        Summary rules:
+        1. Must be within 200 characters (including spaces)
+        2. **MUST summarize in {language}** (never translate to another language)
+        3. Include only key facts and content concisely
+        4. Remove unnecessary modifiers
+        5. Focus on the 5W1H principle
+
+        Output format must be:
         {format_instructions}"""),
-        ("human", """본문: {text}
+        ("human", """Article text: {text}
 
-        위 기사를 200자 이내로 요약해줘.""")
-    ]).partial(format_instructions=base_parser.get_format_instructions())
+        Summarize the above article in {language} within 200 characters.""")
+    ]).partial(
+        format_instructions=base_parser.get_format_instructions(),
+        language=lang_name
+    )
 
     chain = prompt | llm
 
