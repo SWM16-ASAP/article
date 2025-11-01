@@ -32,3 +32,6 @@ log
 
 # test
 test/
+
+#backup
+backup/

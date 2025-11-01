@@ -60,7 +60,10 @@ class BookState(TypedDict):
     
     # --- Chapter Metadata ---
     chapter_metadata: List[ChapterMetadata]  # Metadata for each chapter (title, summary, level)
-    
+
+    # --- Topic Selection ---
+    topic_candidates: Optional[List[Dict[str, str]]]  # [{"title": str, "url": str}, ...]
+
     # --- Final Output Data ---
     # This list will be populated during the workflow and directly used to build the final JSON.
     leveled_results: List[LevelResult]

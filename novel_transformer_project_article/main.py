@@ -8,7 +8,9 @@ from .state import BookState
 from .nodes.navigation_nodes import move_to_next_chunk, move_to_next_chapter
 from .nodes.parallel_cefr_processing_node import create_all_cefr_versions_parallel
 from .nodes.generate_article_node import generate_article
-from .nodes.fetch_topic_and_articles_node import fetch_topic_and_articles
+from .nodes.initialize_state_node import initialize_state
+from .nodes.select_topic_node import select_topic
+from .nodes.fetch_articles_node import fetch_articles
 from .nodes.conditional_nodes import should_continue_chunk, should_continue_chapter
 from .nodes.final_summary_log_node import log_final_summary
 from .nodes.generate_cover_image_node import generate_cover_image
@@ -27,7 +29,10 @@ def create_article_transformer_workflow():
 
     workflow = StateGraph(BookState)
 
-    workflow.add_node("fetch_topic_and_articles", fetch_topic_and_articles)
+    # 3개로 분리된 노드 추가
+    workflow.add_node("initialize_state", initialize_state)
+    workflow.add_node("select_topic", select_topic)
+    workflow.add_node("fetch_articles", fetch_articles)
     workflow.add_node("generate_article", generate_article)
     workflow.add_node("generate_cover_image", generate_cover_image)
     workflow.add_node("split_chapter_into_chunks", split_chapter_into_chunks)
@@ -36,9 +41,11 @@ def create_article_transformer_workflow():
     workflow.add_node("move_to_next_chapter", move_to_next_chapter)
     workflow.add_node("log_final_summary", log_final_summary)
 
-    # workflow
-    workflow.set_entry_point("fetch_topic_and_articles")
-    workflow.add_edge("fetch_topic_and_articles", "generate_article")
+    # workflow: 3개 노드를 순차 실행
+    workflow.set_entry_point("initialize_state")
+    workflow.add_edge("initialize_state", "select_topic")
+    workflow.add_edge("select_topic", "fetch_articles")
+    workflow.add_edge("fetch_articles", "generate_article")
     workflow.add_edge("generate_article", "generate_cover_image")
     workflow.add_edge("generate_cover_image", "split_chapter_into_chunks")
     workflow.add_edge("split_chapter_into_chunks", "create_all_cefr_versions_parallel")
@@ -116,6 +123,7 @@ def transform_article() -> Dict[str, Any]:
         "current_chapter_index": 0,
         "current_chunk_index": 0,
         "chapter_metadata": [],  # 빈 값으로 초기화
+        "topic_candidates": [],
         "leveled_results": [],  # 빈 값으로 초기화
         "origin_url": "",
         "usage_metrics": {},
