@@ -342,7 +342,7 @@ def generate_article(state: BookState) -> BookState:
                         continue
 
                     if not is_english_text(content_stripped):
-                        error_msg = f"Attempt {attempt+1}: Generated content is not in English"
+                        error_msg = f"Attempt {attempt+1}: Generated content is not in English: {content_stripped[:50]}..."
                         logger.warning(error_msg)
                         if attempt == max_retries - 1:
                             raise ValueError(error_msg)
