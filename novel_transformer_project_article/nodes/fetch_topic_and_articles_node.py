@@ -6,8 +6,9 @@ import json
 import requests
 from re import T
 from typing import List, Dict
-from datetime import datetime, timedelta
+from datetime import datetime
 from pydantic import BaseModel, Field
+from urllib.parse import urlparse
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.output_parsers import OutputFixingParser
@@ -311,8 +312,7 @@ def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: i
     search_params = {
         "query": topic,
         "max_results": max_results,
-        "include_raw_content": "markdown",
-        "exclude_domains": ["youtube.com","x.com","instagram.com","facebook.com"]
+        "include_raw_content": "markdown"
     }
 
     # Science, Technology는 topic="news" 설정
@@ -325,11 +325,37 @@ def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: i
 
         articles = response.get("results", [])
 
-        # score >= min_score인 기사만 필터링
-        filtered_articles = [
-            article for article in articles
-            if article.get("score", 0) >= min_score
-        ]
+        # 제외할 도메인 목록 (정확한 도메인만 매칭)
+        exclude_domains = ["youtube.com", "www.youtube.com", "x.com", "www.x.com",
+                          "twitter.com", "www.twitter.com", "instagram.com", "www.instagram.com",
+                          "facebook.com", "www.facebook.com"]
+
+        # score >= min_score이면서 제외 도메인이 아닌 기사만 필터링
+        filtered_articles = []
+        for article in articles:
+            # score 체크
+            if article.get("score", 0) < min_score:
+                continue
+
+            # URL에서 도메인 추출
+            url = article.get("url", "")
+            try:
+                parsed_url = urlparse(url)
+                domain = parsed_url.hostname  # 순수 호스트명만 추출 (www.example.com)
+
+                if domain:
+                    domain = domain.lower()
+                    # 정확한 도메인 매칭 (sciencex.com은 제외되지 않음)
+                    if domain in exclude_domains:
+                        logger.info(f"제외 도메인 기사 필터링: {url} (도메인: {domain})")
+                        continue
+
+            except Exception as e:
+                logger.warning(f"URL 파싱 실패: {url} - {e}")
+                # 파싱 실패 시 포함 (안전한 선택)
+                pass
+
+            filtered_articles.append(article)
 
         # score 내림차순 정렬
         sorted_articles = sorted(
@@ -694,10 +720,14 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
         diffbot_article = data['objects'][0]
         text = diffbot_article.get('text', '').strip()
 
-        if len(text) < 400 :
-            return text
-
         logger.info(f"Diffbot 본문 추출 완료 - 본문 길이: {len(text)}자")
+
+        if not text.strip():
+            raise ValueError("Diffbot 본문이 비어있습니다.")
+
+        if len(text) < 400 :
+            logger.info(f"요약 내용: {text[:100]}...")
+            return text
 
     except Exception as e:
         logger.error(f"Diffbot으로 주제 기사 추출 실패: {e}")
