@@ -331,6 +331,110 @@ def _fetch_articles_with_tavily(topic: str, category: str = None, max_results: i
         raise
 
 
+def _parser_science_articles_with_diffbot(state: BookState = None) -> None:
+    """
+    과학 카테고리 전용: topic_candidates를 순서대로 시도하여 Diffbot으로 파싱
+
+    Args:
+        state: BookState (full_text와 origin_url을 업데이트함)
+
+    Raises:
+        ValueError: 모든 주제 후보 파싱 실패 시
+    """
+    logger.info("=== 과학 카테고리: 단일 소스 파싱 모드 ===")
+
+    # Diffbot API 토큰 확인
+    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
+    if not diffbot_token:
+        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
+
+    topic_candidates = state.get("topic_candidates", [])
+
+    if not topic_candidates:
+        raise ValueError("topic_candidates가 없습니다.")
+
+    # topic_candidates를 순서대로 시도
+    for i, topic in enumerate(topic_candidates, 1):
+        topic_title = topic['title']
+        topic_url = topic['url']
+
+        logger.info(f"주제 후보 {i}/{len(topic_candidates)} Diffbot 파싱 시도: {topic_title}")
+
+        try:
+            # Diffbot API 호출
+            api_url = "https://api.diffbot.com/v3/article"
+            headers = {"accept": "application/json"}
+            params = {'url': topic_url, 'token': diffbot_token}
+
+            response = requests.get(api_url, headers=headers, params=params, timeout=30)
+            response.raise_for_status()
+
+            data = response.json()
+
+            # objects 배열에서 첫 번째 기사 추출
+            if not data.get('objects') or len(data['objects']) == 0:
+                raise ValueError("Diffbot 응답에 objects가 없습니다.")
+
+            diffbot_article = data['objects'][0]
+
+            # 제목과 본문 추출
+            title = diffbot_article.get('title', '').strip()
+            text = diffbot_article.get('text', '').strip()
+
+            # 제목과 본문 검증
+            if not title or not text or len(text) < 50:
+                raise ValueError(f"제목 또는 본문이 부족함 - 제목: '{title[:50]}', 본문 길이: {len(text)}자")
+
+            logger.info(f"✅ 파싱 성공 - 제목: {title[:50]}..., 본문 길이: {len(text)}자")
+
+            # 기사 텍스트 포맷팅
+            article_text = f"=== {title} ===\n{text}"
+
+            # 10000자로 제한
+            if len(article_text) > 10000:
+                article_text = article_text[:10000]
+                logger.info(f"기사 텍스트를 10000자로 제한함")
+
+            # state에 저장
+            state["full_text"] = article_text.strip()
+            state["origin_url"] = topic_url
+
+            logger.info(f"=== 기사 수집 완료 (과학 카테고리) ===")
+            logger.info(f"선정된 주제: {topic_title}")
+            logger.info(f"수집된 기사 길이: {len(article_text):,}자")
+
+            return  # 성공 시 종료
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"❌ 주제 '{topic_title}' Diffbot API 타임아웃 - 다음 주제 시도")
+            continue
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"❌ 주제 '{topic_title}' Diffbot API 요청 실패: {str(e)[:100]} - 다음 주제 시도")
+            continue
+        except Exception as e:
+            logger.warning(f"❌ 주제 '{topic_title}' 파싱 실패: {str(e)[:100]} - 다음 주제 시도")
+            continue
+
+    # 모든 주제에서 실패한 경우
+    error_msg = f"모든 주제 후보 파싱 실패. 시도한 주제: {', '.join([t['title'] for t in topic_candidates[:3]])}"
+    logger.error(error_msg)
+
+    # 디스코드 알림
+    discord_message = f"""⚠️ **기사 파싱 실패 (과학 카테고리)** ⚠️
+
+    **Request ID**: {state.get('id', 'N/A')}
+    **카테고리**: Science
+    **언어**: {state.get('target_language_code', 'N/A')}
+
+    **시도한 주제 후보들**:
+    {chr(10).join([f"{i}. {topic['title']}" for i, topic in enumerate(topic_candidates, 1)])}
+
+    모든 주제에서 Diffbot 파싱에 실패했습니다."""
+
+    send_discord_webhook(discord_message)
+    raise ValueError(error_msg)
+
+
 def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_count: int = 3, state: BookState = None) -> str:
     """
     Diffbot API를 사용하여 기사 URL에서 제목과 본문 파싱
@@ -475,6 +579,10 @@ def fetch_articles(state: BookState) -> BookState:
         # full_text가 이미 있으면 skip
         if state.get("full_text") and state["full_text"].strip():
             logger.info("full_text가 이미 존재합니다. 기사 수집 단계를 건너뜁니다.")
+            return state
+
+        if state.get("tags")[0] == "Science":
+            _parser_science_articles_with_diffbot(state)
             return state
 
         # state에서 topic_candidates 가져오기

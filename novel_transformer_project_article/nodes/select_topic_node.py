@@ -43,8 +43,18 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
             "JA": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp1ZEdvU0FtdHZHZ0pMVWlnQVAB?hl=ja&gl=JP&ceid=JP:ja"
         },
         "Science": {
-            "KO": "https://www.sciencenews.org/feed",
-            "JA": "https://www.sciencenews.org/feed"
+            "KO": [
+                "https://www.sciencenews.org/feed",
+                "https://www.sciencedaily.com/rss/all.xml",
+                "https://www.livescience.com/feeds.xml",
+                "https://phys.org/rss-feed/"
+            ],
+            "JA": [
+                "https://www.sciencenews.org/feed",
+                "https://www.sciencedaily.com/rss/all.xml",
+                "https://www.livescience.com/feeds.xml",
+                "https://phys.org/rss-feed/"
+            ]
         },
         "Business": {
             "KO": "https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtdHZHZ0pMVWlnQVAB?hl=ko&gl=KR&ceid=KR:ko",
@@ -61,11 +71,20 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
     }
 
     # URL 가져오기
-    rss_url = RSS_URLS.get(category, {}).get(language)
+    rss_data = RSS_URLS.get(category, {}).get(language)
 
-    if not rss_url:
+    if not rss_data:
         logger.error(f"지원하지 않는 카테고리 또는 언어: category={category}, language={language}")
         raise ValueError(f"지원하지 않는 카테고리 또는 언어: {category}, {language}")
+
+    # Science 카테고리의 경우 날짜 기반 로테이션
+    if category == "Science" and isinstance(rss_data, list):
+        day_of_year = datetime.now().timetuple().tm_yday
+        rss_index = day_of_year % len(rss_data)
+        rss_url = rss_data[rss_index]
+        logger.info(f"Science 카테고리 로테이션: day_of_year={day_of_year}, index={rss_index}")
+    else:
+        rss_url = rss_data
 
     logger.info(f"Google News RSS 요청: category={category}, language={language}")
     logger.info(f"RSS URL: {rss_url}")
