@@ -8,7 +8,7 @@ import requests
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain.output_parsers import OutputFixingParser
+from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 from tavily import TavilyClient
 from lingua import Language, LanguageDetectorBuilder
