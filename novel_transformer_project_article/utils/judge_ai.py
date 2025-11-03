@@ -6,7 +6,7 @@ from typing import Dict, Any, Tuple
 import boto3
 from botocore.config import Config
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain.output_parsers import OutputFixingParser
+from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 from pydantic import BaseModel, Field
 

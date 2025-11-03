@@ -15,7 +15,7 @@ from ..prompts.generate_chapter_metadata_prompt import get_metadata_prompt
 import json
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
-from langchain.output_parsers import OutputFixingParser
+from langchain_classic.output_parsers import OutputFixingParser
 from langchain_core.exceptions import OutputParserException
 
 

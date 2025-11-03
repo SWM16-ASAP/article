@@ -58,8 +58,7 @@ def setup_logging(log_level: Optional[str] = None) -> None:
         'urllib3',
         's3transfer',
         'langchain',
-        'openai',
-        'nemoguardrails'
+        'openai'
     ]
     
     for logger_name in noisy_loggers:
