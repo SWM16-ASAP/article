@@ -1,7 +1,7 @@
 import os
 import json
+import re
 import requests
-from re import T
 from typing import List, Dict
 from datetime import datetime
 from pydantic import BaseModel, Field
@@ -218,6 +218,63 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
     """LLM을 사용하여 헤드라인에서 가장 적합한 주제 3개 선정 (title과 url 포함)"""
     logger.info("LLM을 사용하여 주제 3개 선정 중...")
 
+    def fix_unescaped_quotes_in_json(text: str) -> str:
+        """
+        JSON 문자열 내부의 이스케이프되지 않은 따옴표를 처리합니다.
+        topics 배열의 문자열 값 내부에 있는 이스케이프되지 않은 큰따옴표를
+        백슬래시로 이스케이프 처리하여 JSON 파싱 에러를 방지합니다.
+        """
+        # 정상 파싱되면 그대로 반환
+        try:
+            json.loads(text)
+            logger.info("[fix_unescaped_quotes] JSON 파싱 성공 - 이스케이프 처리 불필요")
+            return text
+        except json.JSONDecodeError as e:
+            logger.info(f"[fix_unescaped_quotes] JSON 파싱 실패 - 이스케이프 처리 시작: {str(e)[:100]}")
+
+        # topics 배열 찾기: "topics": [ ... ]
+        topics_pattern = r'"topics"\s*:\s*\[\s*(.*?)\s*\]'
+        match = re.search(topics_pattern, text, re.DOTALL)
+
+        if not match:
+            logger.warning("[fix_unescaped_quotes] topics 배열을 찾지 못함 - 원본 반환")
+            return text
+
+        array_content = match.group(1)
+        logger.info(f"[fix_unescaped_quotes] topics 배열 추출: {array_content[:200]}...")
+
+        # ", " 로 split (쉼표 앞뒤로 " 있는 경우)
+        elements = re.split(r'"\s*,\s*"', array_content)
+        logger.info(f"[fix_unescaped_quotes] {len(elements)}개 요소로 분리됨")
+
+        # 각 요소의 양 끝 " 정리 및 내부 " 를 \" 로 이스케이프
+        fixed_elements = []
+        for i, elem in enumerate(elements, 1):
+            # 앞뒤 공백 및 " 제거
+            original_elem = elem
+            elem = elem.strip().strip('"')
+
+            # 내부 " 를 \" 로 이스케이프
+            if '"' in elem:
+                logger.info(f"[fix_unescaped_quotes] 요소 {i}: 이스케이프되지 않은 따옴표 발견")
+                logger.info(f"  원본: {elem[:100]}")
+                elem = elem.replace('"', r'\"')
+                logger.info(f"  수정: {elem[:100]}")
+
+            # 다시 " 로 감싸기
+            fixed_elements.append(f'"{elem}"')
+
+        # 배열 재조립
+        fixed_array = "[" + ", ".join(fixed_elements) + "]"
+
+        # 원본 텍스트에서 topics 부분만 교체
+        result = text[:match.start()] + f'"topics": {fixed_array}' + text[match.end():]
+
+        logger.info("[fix_unescaped_quotes] ✅ 이스케이프 처리 완료")
+        logger.info(f"[fix_unescaped_quotes] 결과: {result[:300]}...")
+
+        return result
+
     # 헤드라인 텍스트 생성
     headlines_text = "\n".join([
         f"{i+1}. {h['title']}"
@@ -272,19 +329,22 @@ def _select_topic_with_llm(headlines: List[Dict[str, str]], recent_article_headl
     chain = prompt | llm
     raw_response = chain.invoke(
         {
-            "headlines": headlines_text, 
-            "recent_article_headlines": recent_article_headlines, 
+            "headlines": headlines_text,
+            "recent_article_headlines": recent_article_headlines,
             "format_instructions": base_parser.get_format_instructions(),
             "country": country,
             "category": state.get("tags")[0]
         })
-    
+
+    # JSON 이스케이프 처리
+    fixed_content = fix_unescaped_quotes_in_json(raw_response.content)
+
     try:
-        # 테스트로 fixingparser로 바로 파싱
-        response = base_parser.parse(raw_response.content)
+        # 이스케이프 처리된 JSON으로 파싱
+        response = base_parser.parse(fixed_content)
     except OutputParserException as e:
         logger.info(f"주제 선정 파싱 실패, OutputFixingParser로 복구 시도: {str(e)[:50]}...")
-        response = fixing_parser.parse(raw_response.content)
+        response = fixing_parser.parse(fixed_content)
         logger.info("OutputFixingParser를 통한 파싱 복구 성공")
 
     logger.info(f"선정된 주제 후보 {len(response.topics)}개:")
