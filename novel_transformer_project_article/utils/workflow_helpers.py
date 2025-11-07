@@ -50,6 +50,9 @@ MODEL_PRICING = {
     }, 
     "openai/gpt-5-image-mini": { # 사진 아무리 비싸도 0.013 비슷하게 아래로 나온다.
         "input": 0, "output": 0.013
+    },
+    "google/gemini-2.5-flash-image-preview": {
+        "input": 0, "output": 0.04
     }
     # Add other models here
 }

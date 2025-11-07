@@ -72,7 +72,7 @@ def generate_cover_image(state: BookState) -> BookState:
         api_key=openrouter_api_key,
     )
 
-    image_model_id = "openai/gpt-5-image-mini"
+    image_model_id = "google/gemini-2.5-flash-image-preview"
 
     article_text = state.get("chapters")[0].strip()
 
@@ -83,7 +83,7 @@ def generate_cover_image(state: BookState) -> BookState:
     # Get image generation prompt (from Langfuse or hardcoded fallback)
     image_prompt = get_cover_image_prompt(article_text)
 
-    logger.info("OpenRouter GPT-5-image-mini로 커버 이미지 생성 중...")
+    logger.info(f"OpenRouter {image_model_id}로 커버 이미지 생성 중...")
 
     max_retry = 3
     for attempt in range(1, max_retry + 1):
@@ -111,6 +111,16 @@ def generate_cover_image(state: BookState) -> BookState:
                     }
                 ]
             )
+
+            # # 전체 응답을 파일에 저장
+            # utils_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "utils")
+            # os.makedirs(utils_dir, exist_ok=True)
+            # completion_response_path = os.path.join(utils_dir, "completion_response.txt")
+
+            # with open(completion_response_path, 'w', encoding='utf-8') as f:
+            #     f.write(str(completion))
+            # logger.info(f"Completion 응답 저장 완료: {completion_response_path}")
+
             # 전체 응답 구조 디버깅
             logger.info(f"=== 전체 응답 디버깅 ===")
             # usage 정보 로깅
