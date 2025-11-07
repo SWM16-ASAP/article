@@ -14,22 +14,22 @@ jobs:
       max-parallel: 1  # Diffbot API rate limit (5 requests/minute) 방지를 위한 순차 실행
       matrix:
         include:
-          - category: Business
-            language: KO
-          - category: Business
-            language: JA
-          - category: Sports
-            language: KO
-          - category: Sports
-            language: JA
+          # - category: Business
+          #   language: KO
+          # - category: Business
+          #   language: JA
+          # - category: Sports
+          #   language: KO
+          # - category: Sports
+          #   language: JA
           - category: Culture
             language: KO
-          - category: Culture
-            language: JA
-          - category: Technology
-            language: null
-          - category: Science
-            language: null
+          # - category: Culture
+          #   language: JA
+          # - category: Technology
+          #   language: null
+          # - category: Science
+            # language: null
 
     steps:
       - name: Checkout code
@@ -98,122 +98,122 @@ jobs:
                -d '{"content":"❌ Article automation failed! Check GitHub Actions logs."}' \
                ${{ secrets.DISCORD_WEBHOOK_URL }}
 
-  notify-completion:
-    needs: generate-articles
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: Download all article artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts/
+  # notify-completion:
+  #   needs: generate-articles
+  #   runs-on: ubuntu-latest
+  #   if: always()
+  #   steps:
+  #     - name: Download all article artifacts
+  #       uses: actions/download-artifact@v4
+  #       with:
+  #         path: artifacts/
 
-      - name: Collect and send article data to backend
-        env:
-          SWAPPER_API_KEY: ${{ secrets.SWAPPER_API_KEY }}
-          ALARM_API_URL: ${{ secrets.ALARM_API_URL }}
-        run: |
-          echo "Collecting article data from artifacts..."
+  #     - name: Collect and send article data to backend
+  #       env:
+  #         SWAPPER_API_KEY: ${{ secrets.SWAPPER_API_KEY }}
+  #         ALARM_API_URL: ${{ secrets.ALARM_API_URL }}
+  #       run: |
+  #         echo "Collecting article data from artifacts..."
 
-          # artifacts 폴더 구조 확인
-          echo "Artifacts structure:"
-          ls -R artifacts/
+  #         # artifacts 폴더 구조 확인
+  #         echo "Artifacts structure:"
+  #         ls -R artifacts/
 
-          # Python으로 모든 artifact JSON 파일 수집 및 API 호출
-          python3 << 'EOF'
-          import json
-          import os
-          import sys
-          from pathlib import Path
-          from urllib import request
-          from collections import defaultdict
+  #         # Python으로 모든 artifact JSON 파일 수집 및 API 호출
+  #         python3 << 'EOF'
+  #         import json
+  #         import os
+  #         import sys
+  #         from pathlib import Path
+  #         from urllib import request
+  #         from collections import defaultdict
 
-          # artifacts 폴더에서 모든 article_result.json 파일 찾기
-          artifacts_path = Path('artifacts')
-          articles_by_id = defaultdict(lambda: {"targetLanguageCodes": None, "targetCategory": None})
+  #         # artifacts 폴더에서 모든 article_result.json 파일 찾기
+  #         artifacts_path = Path('artifacts')
+  #         articles_by_id = defaultdict(lambda: {"targetLanguageCodes": None, "targetCategory": None})
 
-          print("Processing artifacts...")
-          for json_file in artifacts_path.rglob('article_result.json'):
-              print(f"Found: {json_file}")
+  #         print("Processing artifacts...")
+  #         for json_file in artifacts_path.rglob('article_result.json'):
+  #             print(f"Found: {json_file}")
 
-              try:
-                  with open(json_file, 'r', encoding='utf-8') as f:
-                      data = json.load(f)
+  #             try:
+  #                 with open(json_file, 'r', encoding='utf-8') as f:
+  #                     data = json.load(f)
 
-                  article_id = data.get('articleId')
-                  language_code = data.get('targetLanguageCode')
-                  category = data.get('targetCategory')
+  #                 article_id = data.get('articleId')
+  #                 language_code = data.get('targetLanguageCode')
+  #                 category = data.get('targetCategory')
 
-                  if not article_id or not category:
-                      print(f"Warning: Missing data in {json_file}: {data}")
-                      continue
+  #                 if not article_id or not category:
+  #                     print(f"Warning: Missing data in {json_file}: {data}")
+  #                     continue
 
-                  # 같은 articleId로 그룹화 (동일 아티클의 다른 언어 버전)
-                  # language_code는 null일 수 있음
-                  if language_code is not None:
-                      # 첫 언어 코드일 경우 배열로 초기화
-                      if articles_by_id[article_id]["targetLanguageCodes"] is None:
-                          articles_by_id[article_id]["targetLanguageCodes"] = []
-                      articles_by_id[article_id]["targetLanguageCodes"].append(language_code)
-                  articles_by_id[article_id]["targetCategory"] = category
+  #                 # 같은 articleId로 그룹화 (동일 아티클의 다른 언어 버전)
+  #                 # language_code는 null일 수 있음
+  #                 if language_code is not None:
+  #                     # 첫 언어 코드일 경우 배열로 초기화
+  #                     if articles_by_id[article_id]["targetLanguageCodes"] is None:
+  #                         articles_by_id[article_id]["targetLanguageCodes"] = []
+  #                     articles_by_id[article_id]["targetLanguageCodes"].append(language_code)
+  #                 articles_by_id[article_id]["targetCategory"] = category
 
-                  print(f"Loaded: {article_id} - {language_code} - {category}")
+  #                 print(f"Loaded: {article_id} - {language_code} - {category}")
 
-              except Exception as e:
-                  print(f"Error processing {json_file}: {e}")
+  #             except Exception as e:
+  #                 print(f"Error processing {json_file}: {e}")
 
-          # 최종 payload 생성
-          payload = {
-              "articles": [
-                  {
-                      "articleId": article_id,
-                      "targetLanguageCodes": data["targetLanguageCodes"],
-                      "targetCategory": data["targetCategory"]
-                  }
-                  for article_id, data in articles_by_id.items()
-              ]
-          }
+  #         # 최종 payload 생성
+  #         payload = {
+  #             "articles": [
+  #                 {
+  #                     "articleId": article_id,
+  #                     "targetLanguageCodes": data["targetLanguageCodes"],
+  #                     "targetCategory": data["targetCategory"]
+  #                 }
+  #                 for article_id, data in articles_by_id.items()
+  #             ]
+  #         }
 
-          print(f"\nFinal payload ({len(payload['articles'])} articles):")
-          print(json.dumps(payload, indent=2, ensure_ascii=False))
+  #         print(f"\nFinal payload ({len(payload['articles'])} articles):")
+  #         print(json.dumps(payload, indent=2, ensure_ascii=False))
 
-          # API 호출
-          api_url = os.environ.get('ALARM_API_URL')
-          api_key = os.environ.get('SWAPPER_API_KEY')
+  #         # API 호출
+  #         api_url = os.environ.get('ALARM_API_URL')
+  #         api_key = os.environ.get('SWAPPER_API_KEY')
 
-          if not api_url:
-              print("\nWarning: ALARM_API_URL not set. Skipping API call.")
-              sys.exit(0)
+  #         if not api_url:
+  #             print("\nWarning: ALARM_API_URL not set. Skipping API call.")
+  #             sys.exit(0)
 
-          if not api_key:
-              print("\nWarning: SWAPPER_API_KEY not set. Skipping API call.")
-              sys.exit(0)
+  #         if not api_key:
+  #             print("\nWarning: SWAPPER_API_KEY not set. Skipping API call.")
+  #             sys.exit(0)
 
-          if not payload['articles']:
-              print("\nWarning: No articles to send. Skipping API call.")
-              sys.exit(0)
+  #         if not payload['articles']:
+  #             print("\nWarning: No articles to send. Skipping API call.")
+  #             sys.exit(0)
 
-          try:
-              print(f"\nCalling API: {api_url}")
-              req = request.Request(
-                  api_url,
-                  data=json.dumps(payload).encode('utf-8'),
-                  headers={
-                      'Content-Type': 'application/json',
-                      'X-API-Key': api_key
-                  },
-                  method='POST'
-              )
+  #         try:
+  #             print(f"\nCalling API: {api_url}")
+  #             req = request.Request(
+  #                 api_url,
+  #                 data=json.dumps(payload).encode('utf-8'),
+  #                 headers={
+  #                     'Content-Type': 'application/json',
+  #                     'X-API-Key': api_key
+  #                 },
+  #                 method='POST'
+  #             )
 
-              with request.urlopen(req) as response:
-                  print(f"✅ API Response Status: {response.status}")
-                  response_body = response.read().decode('utf-8')
-                  print(f"API Response Body: {response_body}")
+  #             with request.urlopen(req) as response:
+  #                 print(f"✅ API Response Status: {response.status}")
+  #                 response_body = response.read().decode('utf-8')
+  #                 print(f"API Response Body: {response_body}")
 
-          except Exception as e:
-              print(f"❌ Error calling API: {str(e)}")
-              sys.exit(1)
-          EOF
+  #         except Exception as e:
+  #             print(f"❌ Error calling API: {str(e)}")
+  #             sys.exit(1)
+  #         EOF
 
       - name: Notify Discord on failure
         if: failure()
