@@ -5,7 +5,7 @@ import os
 
 logger = get_logger(__name__)
 
-COST_THRESHOLD = 0.04
+COST_THRESHOLD = 0.05
 
 def log_final_summary(state: BookState) -> BookState:
     """Logs the total token usage and estimated cost per model."""
