@@ -417,8 +417,15 @@ def select_topic(state: BookState) -> BookState:
         recent_article_titles = [article.get("title", "").strip() for article in recent_articles if article.get("title")]
         logger.info(f"최근 기사 제목 {len(recent_article_titles)}개 추출")
 
-        # 2. LLM으로 주제 3개 선정 (중요도 순)
-        topic_candidates = _select_topic_with_llm(filtered_headlines, recent_article_titles, state)
+        # 2. LLM으로 주제 3개 선정 (중요도 순) - 최대 3번 시도
+        max_try = 3
+        
+        while max_try > 0:
+            topic_candidates = _select_topic_with_llm(filtered_headlines, recent_article_titles, state)
+            if topic_candidates :
+                break
+            logger.warning(f"{4-max_try} 시도: topic_candidates가 비어있음 -> 재시도")
+            max_try -= 1
 
         # dict로 변환하여 state에 저장
         state["topic_candidates"] = [
