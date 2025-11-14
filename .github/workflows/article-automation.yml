@@ -14,22 +14,22 @@ jobs:
       max-parallel: 1  # Diffbot API rate limit (5 requests/minute) 방지를 위한 순차 실행
       matrix:
         include:
-          # - category: Business
-          #   language: KO
-          # - category: Business
-          #   language: JA
+          - category: Business
+            language: KO
+          - category: Business
+            language: JA
           - category: Sports
             language: KO
-          # - category: Sports
-          #   language: JA
+          - category: Sports
+            language: JA
           - category: Culture
             language: KO
-          # - category: Culture
-          #   language: JA
+          - category: Culture
+            language: JA
           - category: Technology
             language: null
-          # - category: Science
-          #   language: null
+          - category: Science
+            language: null
 
     steps:
       - name: Checkout code
