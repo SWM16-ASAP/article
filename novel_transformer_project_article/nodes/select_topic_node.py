@@ -46,14 +46,12 @@ def _fetch_trending_news_with_google_rss(category: str, language: str = "KO") ->
             "KO": [
                 "https://www.sciencenews.org/feed",
                 "https://www.sciencedaily.com/rss/all.xml",
-                "https://www.livescience.com/feeds.xml",
-                "https://phys.org/rss-feed/"
+                "https://www.livescience.com/feeds.xml"
             ],
             "JA": [
                 "https://www.sciencenews.org/feed",
                 "https://www.sciencedaily.com/rss/all.xml",
-                "https://www.livescience.com/feeds.xml",
-                "https://phys.org/rss-feed/"
+                "https://www.livescience.com/feeds.xml"
             ]
         },
         "Business": {
