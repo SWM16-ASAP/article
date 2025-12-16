@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from openai import OpenAI
 
 from ..state import BookState
@@ -184,7 +185,19 @@ def generate_cover_image(state: BookState) -> BookState:
             break
 
         except Exception as e:
+            error_message = str(e)
             logger.error(f"OpenRouter를 통한 이미지 생성 중 오류 발생: {e}")
-            raise
+
+            # Error code 400 체크 (이미지 다운로드 timeout)
+            if "Error code: 400" in error_message :
+                if attempt < max_retry:
+                    logger.warning("이미지 다운로드 timeout 발생, 재시도합니다.")
+                    time.sleep(10)
+                    continue
+                else:
+                    logger.error(f"이미지 다운로드 timeout 발생, 최대 재시도 횟수 초과")
+                    raise
+            else:
+                raise
 
     return state
