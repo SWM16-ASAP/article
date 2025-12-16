@@ -1,14 +1,14 @@
 import os
 import re
+import time
 import requests
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 from langchain_aws import ChatBedrock
 from langchain_core.runnables import Runnable
 from langchain_core.messages import AIMessage
 from ..state import BookState
 from .logging_config import get_logger
 from .exceptions import CostLimitExceededError
-from typing import Any
 
  # 혹시 모를 circular import 방지를 위한 type hinting -> ide 확인용
 if TYPE_CHECKING:
@@ -58,6 +58,63 @@ MODEL_PRICING = {
 }
 
 logger = get_logger(__name__)
+
+# Diffbot API ------------------------------------------------------------
+
+# Diffbot API rate limit 관리를 위한 전역 변수
+_last_diffbot_call_time: Optional[float] = None
+_diffbot_rate_limit_seconds = 12  # 분당 5회 = 60초 / 5 = 12초 간격
+
+def call_diffbot_api(url: str, timeout: int = 30) -> Dict[str, Any]:
+    """
+    Diffbot API를 호출하여 기사 파싱 (rate limit 자동 관리)
+
+    분당 5회 제한을 준수하기 위해 마지막 호출로부터 12초가 지나지 않았다면 자동으로 대기합니다.
+
+    Args:
+        url: 파싱할 기사의 URL
+        timeout: 요청 타임아웃 (초 단위, 기본값: 30)
+
+    Returns:
+        Diffbot API 응답 JSON (dict)
+
+    Raises:
+        ValueError: DIFFBOT_API_TOKEN이 없거나 응답에 objects가 없는 경우
+        requests.exceptions.RequestException: API 요청 실패
+    """
+    global _last_diffbot_call_time
+
+    # Rate limit 준수: 마지막 호출로부터 12초가 지나지 않았다면 대기
+    if _last_diffbot_call_time is not None:
+        elapsed = time.time() - _last_diffbot_call_time
+        if elapsed < _diffbot_rate_limit_seconds:
+            wait_time = _diffbot_rate_limit_seconds - elapsed
+            logger.info(f"Diffbot rate limit 준수를 위해 {wait_time:.1f}초 대기 중...")
+            time.sleep(wait_time)
+
+    # Diffbot API 토큰 확인
+    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
+    if not diffbot_token:
+        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
+
+    # API 호출
+    api_url = "https://api.diffbot.com/v3/article"
+    headers = {"accept": "application/json"}
+    params = {'url': url, 'token': diffbot_token}
+
+    response = requests.get(api_url, headers=headers, params=params, timeout=timeout)
+    response.raise_for_status()
+
+    # 호출 시간 기록
+    _last_diffbot_call_time = time.time()
+
+    data = response.json()
+
+    # objects 배열 확인
+    if not data.get('objects') or len(data['objects']) == 0:
+        raise ValueError("Diffbot 응답에 objects가 없습니다.")
+
+    return data
 
 # JSON Parsing ------------------------------------------------------------
 

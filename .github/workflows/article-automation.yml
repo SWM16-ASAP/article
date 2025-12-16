@@ -83,9 +83,9 @@ jobs:
         run: |
           python -m novel_transformer_project_article.main
 
-      - name: Wait 1 minute
+      - name: Wait between jobs for rate limit safety
         if : success() || failure() # 성공, 실패 관계 여부 상관없이 실행
-        run: sleep 60
+        run: sleep 15  # Diffbot rate limit 안전을 위한 최소 대기 (call_diffbot_api()가 12초 자동 대기 제공)
 
       - name: Upload article result as artifact
         if: success()

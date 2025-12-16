@@ -15,7 +15,7 @@ from lingua import Language, LanguageDetectorBuilder
 
 from ..state import BookState
 from ..utils.logging_config import get_logger
-from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook
+from ..utils.workflow_helpers import setup_bedrock, BedrockTokenTrackingWrapper, send_discord_webhook, call_diffbot_api
 from ..prompts.outputFixingParser_prompt import get_output_fixing_prompt
 
 logger = get_logger(__name__)
@@ -75,23 +75,9 @@ def _summarize_topic_with_diffbot_and_llm(topic_url: str, state: BookState = Non
     logger.info(f"주제 URL 요약 시작: {topic_url}")
 
     # 1. Diffbot으로 기사 본문 추출
-    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
-    if not diffbot_token:
-        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
-
     try:
         logger.info("Diffbot으로 주제 기사 본문 추출 중...")
-        api_url = "https://api.diffbot.com/v3/article"
-        headers = {"accept": "application/json"}
-        params = {'url': topic_url, 'token': diffbot_token}
-
-        response = requests.get(api_url, headers=headers, params=params, timeout=30)
-        response.raise_for_status()
-
-        data = response.json()
-
-        if not data.get('objects') or len(data['objects']) == 0:
-            raise ValueError("Diffbot 응답에 objects가 없습니다.")
+        data = call_diffbot_api(topic_url, timeout=30)
 
         diffbot_article = data['objects'][0]
         text = diffbot_article.get('text', '').strip()
@@ -343,11 +329,6 @@ def _parser_science_articles_with_diffbot(state: BookState = None) -> None:
     """
     logger.info("=== 과학 카테고리: 단일 소스 파싱 모드 ===")
 
-    # Diffbot API 토큰 확인
-    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
-    if not diffbot_token:
-        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
-
     topic_candidates = state.get("topic_candidates", [])
 
     if not topic_candidates:
@@ -362,18 +343,7 @@ def _parser_science_articles_with_diffbot(state: BookState = None) -> None:
 
         try:
             # Diffbot API 호출
-            api_url = "https://api.diffbot.com/v3/article"
-            headers = {"accept": "application/json"}
-            params = {'url': topic_url, 'token': diffbot_token}
-
-            response = requests.get(api_url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
-
-            # objects 배열에서 첫 번째 기사 추출
-            if not data.get('objects') or len(data['objects']) == 0:
-                raise ValueError("Diffbot 응답에 objects가 없습니다.")
+            data = call_diffbot_api(topic_url, timeout=30)
 
             diffbot_article = data['objects'][0]
 
@@ -453,11 +423,6 @@ def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_coun
     """
     logger.info(f"Diffbot API로 기사 파싱 시작 (목표: {target_count}개)")
 
-    # Diffbot API 토큰 확인
-    diffbot_token = os.getenv("DIFFBOT_API_TOKEN")
-    if not diffbot_token:
-        raise ValueError("DIFFBOT_API_TOKEN 환경변수가 설정되지 않았습니다.")
-
     parsed_articles = []
     failed_count = 0
 
@@ -477,25 +442,7 @@ def _parse_articles_with_diffbot(article_data: List[Dict[str, str]], target_coun
             logger.info(f"[{i+1}/{len(article_data)}] Diffbot 파싱 시도: {url}")
 
             # Diffbot API 호출
-            api_url = "https://api.diffbot.com/v3/article"
-
-            headers = {"accept": "application/json"}
-
-            params = {
-                'url': url,
-                'token': diffbot_token
-            }
-
-            response = requests.get(api_url, headers=headers, params=params, timeout=30)
-            response.raise_for_status()
-
-            data = response.json()
-
-            # objects 배열에서 첫 번째 기사 추출
-            if not data.get('objects') or len(data['objects']) == 0:
-                logger.warning(f"  ⚠️ Diffbot 응답에 objects가 없음")
-                failed_count += 1
-                continue
+            data = call_diffbot_api(url, timeout=30)
 
             diffbot_article = data['objects'][0]
 
