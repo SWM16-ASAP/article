@@ -178,7 +178,7 @@ class ArticleHandler:
                 backend_url,
                 headers=headers,
                 json=body,  # body가 아니라 json 파라미터 사용
-                timeout=15
+                timeout=60 # backend on‑premises로 변경하면서 timeout 늘어나게 수정
             )
 
             response.raise_for_status()
