@@ -73,7 +73,7 @@ def generate_cover_image(state: BookState) -> BookState:
         api_key=openrouter_api_key,
     )
 
-    image_model_id = "openai/gpt-5-image-mini"
+    image_model_id = "google/gemini-2.5-flash-image"
 
     article_text = state.get("chapters")[0].strip()
 
